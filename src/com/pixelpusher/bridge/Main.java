@@ -160,7 +160,9 @@ public class Main {
     status.setWatchdog(watchdog);
     status.setRecorder(recorder);
     WebServer web = new WebServer(cfg, core, tests, status, recorder);
+    status.setBlackout(web.getBlackout());
     Diagnostic diagnostic = new Diagnostic(cfg, core, tests, recorder);
+    diagnostic.setBlackout(web.getBlackout());
     web.setDiagnostic(diagnostic);
     try {
       web.start();
@@ -179,7 +181,7 @@ public class Main {
 
     // 5. icone de barre systeme (point vert + menu clic droit)
     if (web.getBoundPort() > 0) {
-      Tray.install(core, "http://localhost:" + web.getBoundPort() + "/");
+      Tray.install(core, web.getBlackout(), "http://localhost:" + web.getBoundPort() + "/");
     }
 
     if (web.getBoundPort() > 0 && cfg.isOpenBrowser() && !noBrowser) {

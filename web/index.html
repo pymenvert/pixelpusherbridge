@@ -45,6 +45,9 @@
     cursor:pointer;font-family:inherit;transition:.15s;font-weight:550}
   .hbtn:hover{border-color:var(--acc);transform:translateY(-1px)}
   .hbtn.danger{color:var(--err)} .hbtn.danger:hover{border-color:var(--err)}
+  .hbtn.active{background:rgba(248,113,113,.2);border-color:var(--err);color:#fecaca;
+    animation:boPulse 1.6s ease-in-out infinite}
+  @keyframes boPulse{50%{box-shadow:0 0 0 4px rgba(248,113,113,.12)}}
   .hbtn.warn{color:var(--warn)} .hbtn.warn:hover{border-color:var(--warn)}
 
   /* ---------- nav ---------- */
@@ -83,6 +86,10 @@
   .banner.wd{background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.4);color:var(--err)}
   .banner.play{background:rgba(34,211,238,.08);border:1px solid rgba(34,211,238,.4);color:var(--acc2)}
   .banner.rec{background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.4);color:var(--err)}
+  /* Le blackout est un etat verrouille : il doit etre impossible a rater. */
+  .banner.bo{background:linear-gradient(135deg,rgba(248,113,113,.18),rgba(248,113,113,.07));
+    border:1px solid rgba(248,113,113,.65);color:#fecaca;font-size:13.5px;
+    box-shadow:0 0 24px rgba(248,113,113,.18)}
 
   /* santé */
   .health{display:flex;flex-direction:column;gap:2px;padding:8px 18px}
@@ -283,7 +290,7 @@
     <div class="sub">Pont Art-Net / sACN &rarr; PixelPusher &middot; <span id="version">&ndash;</span> &middot; uptime <span id="hUptime">&ndash;</span></div>
   </div>
   <div class="hspacer"></div>
-  <button class="hbtn" onclick="quickBlackout()" title="Éteint immédiatement toutes les LED">&#9899; <span>Blackout</span></button>
+  <button class="hbtn" id="hBlackout" onclick="quickBlackout()" title="Éteint toutes les LED et ignore le flux entrant jusqu'à la reprise">&#9899; <span>Blackout</span></button>
   <button class="hbtn warn" onclick="confirmRestart()" title="Redémarre l'application (coupure ~3 s)">&#8635; <span>Red&eacute;marrer</span></button>
   <button class="hbtn danger" onclick="confirmStop()" title="Arrête complètement le bridge">&#9209; <span>Arr&ecirc;ter</span></button>
   <div id="connBadge"><span class="pulse"></span>Connect&eacute;</div>
@@ -300,6 +307,10 @@
 </nav>
 
 <main>
+  <div id="blackoutBanner" class="banner bo">&#9899;&nbsp; <b>BLACKOUT ACTIF</b> &mdash; toutes les LED sont &eacute;teintes et
+    <b>les donn&eacute;es entrantes sont ignor&eacute;es</b>. Rien ne se rallumera tant que tu n&rsquo;auras pas repris la main.
+    <span style="flex:1"></span>
+    <button class="btn okb" type="button" onclick="resumeFromBlackout()">&#9654; Reprendre</button></div>
   <div id="testBanner" class="banner test">&#9888;&nbsp; <b>Mode test actif</b> &mdash; les donn&eacute;es Art-Net/sACN entrantes sont ignor&eacute;es. <span id="bannerLabel"></span></div>
   <div id="playBanner" class="banner play">&#9654;&nbsp; <b>Lecture de s&eacute;quence</b> &mdash; <span id="playBannerLabel"></span> &mdash; le flux Art-Net entrant est ignor&eacute;.</div>
   <div id="recBanner" class="banner rec">&#9210;&nbsp; <b>Enregistrement en cours</b> &mdash; <span id="recBannerLabel"></span></div>
@@ -858,8 +869,16 @@ function overlay(msg){$("overlayMsg").textContent=msg;$("overlay").classList.add
 
 /* ---------- actions bridge ---------- */
 function quickBlackout(){
-  post("/api/action",{action:"blackout"}).then(function(){toast("Blackout envoyé — toutes les LED éteintes.");})
-    .catch(function(){toast("Bridge injoignable","err");});
+  post("/api/action",{action:"blackout"}).then(function(){
+    toast("BLACKOUT actif — le flux entrant est ignoré jusqu'à la reprise.","warn");
+    refreshStatus();
+  }).catch(function(){toast("Bridge injoignable","err");});
+}
+function resumeFromBlackout(){
+  post("/api/action",{action:"resume"}).then(function(){
+    toast("Blackout levé — la console reprend la main ✓");
+    refreshStatus();
+  }).catch(function(){toast("Bridge injoignable","err");});
 }
 function confirmStop(){
   openModal("Arrêter le bridge ?",
@@ -1006,6 +1025,8 @@ function refreshStatus(){
     $("testBanner").classList.toggle("show",s.testMode);
     $("bannerLabel").textContent=s.testLabel?("En cours : "+s.testLabel):"";
     $("wdBanner").classList.toggle("show",!!s.watchdogTriggered);
+    $("blackoutBanner").classList.toggle("show",!!s.blackoutActive);
+    document.getElementById("hBlackout").classList.toggle("active",!!s.blackoutActive);
     $("testLabel").textContent=s.testMode?(s.testLabel||""):"";
     if(!userTouchedTest)$("testEnabled").checked=s.testMode;
 

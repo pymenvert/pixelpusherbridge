@@ -212,8 +212,11 @@ public final class MiniHttpServer {
     if (requestLine == null || requestLine.isEmpty()) {
       return false; // connexion fermee proprement par le client
     }
+    // Une ligne de requete valide s'ecrit « METHODE cible HTTP/x.y », et la
+    // cible commence par « / ». Sans ce controle, une ligne quelconque etait
+    // interpretee comme une requete et servait la page d'accueil.
     String[] parts = requestLine.split(" ");
-    if (parts.length < 2) {
+    if (parts.length != 3 || !parts[2].startsWith("HTTP/") || !parts[1].startsWith("/")) {
       writeSimple(out, 400, "Requete malformee");
       return false;
     }

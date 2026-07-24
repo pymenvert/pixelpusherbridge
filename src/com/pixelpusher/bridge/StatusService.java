@@ -20,6 +20,11 @@ public class StatusService {
   private final TestPatterns tests;
   private Watchdog watchdog;   // optionnel
   private Recorder recorder;   // optionnel
+  private Blackout blackout;   // optionnel
+
+  public void setBlackout(Blackout b) {
+    this.blackout = b;
+  }
   private volatile int webPort = -1;
   private volatile boolean port80 = false;
 
@@ -138,6 +143,7 @@ public class StatusService {
     sb.append("\"testPattern\":\"").append(tests.getPattern()).append("\",");
     sb.append("\"testLabel\":\"").append(Json.esc(tests.getCurrentLabel())).append("\",");
     sb.append("\"watchdogTriggered\":").append(watchdog != null && watchdog.isTriggered()).append(',');
+    sb.append("\"blackoutActive\":").append(blackout != null && blackout.isActive()).append(',');
     sb.append("\"lanUrls\":").append(lanUrls()).append(',');
     sb.append("\"recorder\":").append(recorder != null ? recorder.stateJson() : "{}").append(',');
     sb.append("\"errorsTotal\":").append(LogBus.getErrorCount()).append(',');

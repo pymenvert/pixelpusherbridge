@@ -439,6 +439,13 @@ public class ArtNetReceiver extends Thread {
     int packetno = 0;
     while (true) {
       try {
+        // receive() ecrase la longueur du paquet avec la taille reellement
+        // recue, et cette longueur sert de capacite maximale a la reception
+        // suivante : sans reinitialisation, la capacite ne fait que decroitre.
+        // Un seul petit datagramme (un ArtPoll de 14 octets suffit) condamnait
+        // ainsi toutes les trames DMX suivantes, definitivement. SacnReceiver
+        // le fait deja correctement. (PixelPusherBridge)
+        packet.setLength(buf.length);
         socket.receive(packet);
         parseArtnetPacket(packet);
         if (debug)
@@ -447,6 +454,11 @@ public class ArtNetReceiver extends Thread {
         packetno++;
       } catch (IOException e) {
         e.printStackTrace();
+      } catch (RuntimeException e) {
+        // Filet de securite : aucune trame malformee ne doit pouvoir tuer le
+        // thread de reception. On journalise et on passe a la suivante.
+        // (PixelPusherBridge)
+        System.err.println("Art-Net : trame ignoree apres erreur inattendue : " + e);
       }
     }
   }

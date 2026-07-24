@@ -37,7 +37,12 @@ public class Diagnostic {
   private final LegacyCore core;
   private final TestPatterns tests;
   private final Recorder recorder;
+  private Blackout blackout; // optionnel
   private volatile int webPort = -1;
+
+  public void setBlackout(Blackout b) {
+    this.blackout = b;
+  }
 
   public Diagnostic(AppConfig cfg, LegacyCore core, TestPatterns tests, Recorder recorder) {
     this.cfg = cfg;
@@ -165,6 +170,11 @@ public class Diagnostic {
     }
 
     // ---- mode en cours ----
+    if (blackout != null && blackout.isActive()) {
+      warn(out, "BLACKOUT actif — les données DMX entrantes sont ignorées",
+          "Les LED resteront éteintes tant que tu n'auras pas cliqué sur « Reprendre » "
+          + "(bandeau en haut de la page, ou icône de la barre système).");
+    }
     if (tests.isEnabled()) {
       warn(out, "Mode test actif — le direct Art-Net est ignoré",
           "Désactive le mode test (onglet Tests) pour reprendre le flux normal.");

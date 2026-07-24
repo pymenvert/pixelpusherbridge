@@ -35,6 +35,15 @@ public class AppConfig {
     return dir;
   }
 
+  /**
+   * Instance isolee adossee au fichier fourni, sans passer par le dossier de
+   * configuration de l'utilisateur. Reservee aux tests, qui doivent pouvoir
+   * verifier les conversions et le bornage sans toucher a la vraie config.
+   */
+  static AppConfig forFile(File f) {
+    return new AppConfig(f);
+  }
+
   public static AppConfig load() {
     File f = new File(configDir(), "config.properties");
     AppConfig cfg = new AppConfig(f);

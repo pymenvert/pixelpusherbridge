@@ -300,11 +300,17 @@ public final class DeviceRegistry extends Observable {
    */
   public List<Strip> getStrips() {
     List<Strip> strips = new CopyOnWriteArrayList<Strip>();
+    // release() en finally : une exception pendant le parcours (pusher en train
+    // de disparaitre) perdait le seul permis du semaphore et gelait ensuite
+    // toute l'application. (PixelPusherBridge)
     updateLock.acquireUninterruptibly();
-    for (PixelPusher p : this.sortedPushers) {
-      strips.addAll(p.getStrips());
+    try {
+      for (PixelPusher p : this.sortedPushers) {
+        strips.addAll(p.getStrips());
+      }
+    } finally {
+      updateLock.release();
     }
-    updateLock.release();
     return strips;
   }
   
@@ -337,12 +343,15 @@ public final class DeviceRegistry extends Observable {
    */
   public List<PixelPusher> getPushers(int groupNumber) {
     updateLock.acquireUninterruptibly();
-    List<PixelPusher> pushers = new CopyOnWriteArrayList<PixelPusher>();
-    for (PixelPusher p : this.sortedPushers)
-        if (p.getGroupOrdinal() == groupNumber)
-          pushers.add(p);
-    updateLock.release();
-    return pushers;
+    try {
+      List<PixelPusher> pushers = new CopyOnWriteArrayList<PixelPusher>();
+      for (PixelPusher p : this.sortedPushers)
+          if (p.getGroupOrdinal() == groupNumber)
+            pushers.add(p);
+      return pushers;
+    } finally {
+      updateLock.release(); // voir getStrips (PixelPusherBridge)
+    }
   }
   
   /**
@@ -352,12 +361,15 @@ public final class DeviceRegistry extends Observable {
    */
   public List<PixelPusher> getPushers(InetAddress addr) {
     updateLock.acquireUninterruptibly();
-    List<PixelPusher> pushers = new CopyOnWriteArrayList<PixelPusher>();
-    for (PixelPusher p : this.sortedPushers)
-        if (p.getIp().equals(addr))
-          pushers.add(p);
-    updateLock.release();
-    return pushers;
+    try {
+      List<PixelPusher> pushers = new CopyOnWriteArrayList<PixelPusher>();
+      for (PixelPusher p : this.sortedPushers)
+          if (p.getIp().equals(addr))
+            pushers.add(p);
+      return pushers;
+    } finally {
+      updateLock.release(); // voir getStrips (PixelPusherBridge)
+    }
   }
   
   /**
@@ -394,10 +406,17 @@ public final class DeviceRegistry extends Observable {
           return;
       
       if (updateLock.tryAcquire()) {
+      // release() et remise a zero du drapeau en finally : expireDevice n'est
+      // pas defensif (il dereference des entrees de map qui peuvent avoir
+      // disparu). Une exception y perdait le permis du semaphore ET laissait
+      // hasDeviceExpiryTask a true, ce qui empechait toute nouvelle tache
+      // d'expiration : les pushers disparus ne quittaient plus jamais la liste.
+      // (PixelPusherBridge)
+      try {
       synchronized(registry.hasDeviceExpiryTask) {
-          if (logEnabled) 
+          if (logEnabled)
             LOGGER.fine("Expiry and preening task running");
-          
+
           // A little sleight of hand here.  We can't call registry.expireDevice()
           // directly from inside the loop, for the loop is an implicit iterator and
           // registry.expireDevice modifies the pusherMap.
@@ -405,8 +424,11 @@ public final class DeviceRegistry extends Observable {
           // them outside the iterator.  - jls
           List<String> toKill = new ArrayList<String>();
           for (String deviceMac : pusherMap.keySet()) {
-            double lastSeenSeconds = 
-                 (System.nanoTime() - pusherLastSeenMap.get(deviceMac)) / 1000000000.0;
+            Long vu = pusherLastSeenMap.get(deviceMac);
+            if (vu == null) {
+              continue; // pusher retire entre-temps (PixelPusherBridge)
+            }
+            double lastSeenSeconds = (System.nanoTime() - vu.longValue()) / 1000000000.0;
             if (lastSeenSeconds > MAX_DISCONNECT_SECONDS) {
               if (expiryEnabled) {
                 toKill.add(deviceMac);
@@ -418,9 +440,13 @@ public final class DeviceRegistry extends Observable {
           for (String doomedIndividual : toKill) {
             registry.expireDevice(doomedIndividual);
           }
-          updateLock.release();
-          hasDeviceExpiryTask = false;
         }
+      } catch (RuntimeException e) {
+        System.err.println("Expiration des pushers : cycle abandonne apres une erreur : " + e);
+      } finally {
+        updateLock.release();
+        hasDeviceExpiryTask = false;
+      }
       }
     }
   }
@@ -494,9 +520,18 @@ public final class DeviceRegistry extends Observable {
     public void run() {
       while (true) {
         try {
+          // Meme piege que dans ArtNetReceiver : receive() ecrase la longueur
+          // du paquet, qui devient la capacite maximale de la reception
+          // suivante. Sans reinitialisation, une seule petite annonce reduisait
+          // definitivement la capacite et les pushers finissaient par ne plus
+          // etre detectes. (PixelPusherBridge)
+          discovery_buffer.setLength(discovery_buffer.getData().length);
           discovery_socket.receive(discovery_buffer);
         } catch (IOException e) {
+          // En cas d'echec, le tampon contient encore l'annonce precedente :
+          // la retraiter reinjecterait un pusher fantome. (PixelPusherBridge)
           e.printStackTrace();
+          continue;
         }
         _dr.receive(discovery_buffer.getData());
       }
@@ -590,8 +625,24 @@ public final class DeviceRegistry extends Observable {
   }
 
   synchronized public void receive(byte[] data) {
-    // This is for the UDP callback, this should not be called directly
+    // Le verrou doit imperativement etre relache dans TOUS les cas : sortie
+    // anticipee sur un paquet non-PixelPusher, comme exception inattendue.
+    // Le semaphore n'a qu'un permis ; le perdre gelait definitivement
+    // getStrips(), getPushers() et receive() eux-memes, donc le blackout, le
+    // watchdog, l'arret propre et le thread qui sert l'interface web. Il
+    // suffisait d'un datagramme quelconque sur le port 7331 pour figer toute
+    // l'application, LED bloquees sur la derniere image. Le corps d'origine est
+    // deplace tel quel dans receiveLocked. (PixelPusherBridge)
     updateLock.acquireUninterruptibly();
+    try {
+      receiveLocked(data);
+    } finally {
+      updateLock.release();
+    }
+  }
+
+  private void receiveLocked(byte[] data) {
+    // This is for the UDP callback, this should not be called directly
     DeviceHeader header = new DeviceHeader(data);
     String macAddr = header.GetMacAddressString();
     if (header.DeviceType != DeviceType.PIXELPUSHER) {
@@ -645,7 +696,6 @@ public final class DeviceRegistry extends Observable {
         powerScale = 1.0;
       }
     }
-    updateLock.release();
   }
 
   private void updatePusher(String macAddr, PixelPusher device) {

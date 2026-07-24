@@ -36,6 +36,7 @@ public class WebServer {
   private final TestPatterns tests;
   private final StatusService status;
   private final Recorder recorder;
+  private final Blackout blackout;
   private Diagnostic diagnostic; // optionnel
   private HttpServer server;          // serveur du JDK (voie normale)
   private MiniHttpServer miniServer;  // serveur de secours (voir bind())
@@ -46,9 +47,24 @@ public class WebServer {
     this.diagnostic = d;
   }
 
+  /** Etat de blackout partage avec l'icone systeme et le tableau de bord. */
+  public Blackout getBlackout() {
+    return blackout;
+  }
+
   // clients SSE (flux de logs)
   private final CopyOnWriteArrayList<SseClient> sseClients = new CopyOnWriteArrayList<SseClient>();
   private final ScheduledExecutorService pinger;
+  /** File tampon entre le bus de logs et les clients SSE (voir startSseDispatcher). */
+  private final java.util.concurrent.BlockingQueue<String> sseQueue =
+      new java.util.concurrent.ArrayBlockingQueue<String>(2000);
+  private final java.util.concurrent.atomic.AtomicLong sseDropped =
+      new java.util.concurrent.atomic.AtomicLong();
+
+  /** Lignes de log non diffusees faute de place dans la file (diagnostic). */
+  public long getSseDropped() {
+    return sseDropped.get();
+  }
 
   public WebServer(AppConfig cfg, LegacyCore core, TestPatterns tests, StatusService status,
       Recorder recorder) {
@@ -57,6 +73,7 @@ public class WebServer {
     this.tests = tests;
     this.status = status;
     this.recorder = recorder;
+    this.blackout = new Blackout(core);
     this.pinger = Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
       public Thread newThread(Runnable r) {
         Thread t = new Thread(r, "sse-ping");
@@ -304,14 +321,24 @@ public class WebServer {
       }
     }, 15, 15, TimeUnit.SECONDS);
 
-    // un seul abonne LogBus qui diffuse a tous les clients SSE
+    // Diffusion des logs vers les clients SSE.
+    //
+    // ATTENTION, point critique : LogBus est alimente par TOUS les threads, y
+    // compris celui qui recoit l'Art-Net (un paquet malforme ou un pixel hors
+    // ruban y ecrit une ligne). Ecrire directement dans la socket d'un client
+    // depuis ce thread le bloquerait des que le navigateur cesse de lire -
+    // onglet en veille, telephone verrouille, WiFi qui decroche - et le flux
+    // LED se figerait avec lui. On se contente donc de deposer la ligne dans
+    // une file bornee, qu'un thread dedie vide a son rythme : le chemin
+    // Art-Net -> pushers ne peut plus jamais attendre un navigateur.
     LogBus.addListener(new LogBus.Listener() {
       public void onLog(LogBus.Entry e) {
-        for (SseClient c : sseClients) {
-          c.send("log", e.toJson());
+        if (!sseQueue.offer(e.toJson())) {
+          sseDropped.incrementAndGet();
         }
       }
     });
+    startSseDispatcher();
 
     LogBus.info("Interface web disponible sur http://localhost:" + boundPort + "/");
     if (miniServer != null) {
@@ -583,10 +610,12 @@ public class WebServer {
         tests.configure(false, null, 0, 1, 1, 0, 0); // les tests et la lecture sont exclusifs
       }
       boolean loop = Boolean.parseBoolean(f.get("loop"));
+      blackout.releaseFor("une séquence a été lancée");
       boolean ok = recorder.play(f.get("name"), loop);
       sendJson(ex, ok ? 200 : 404, "{\"ok\":" + ok + "}");
     } else if ("stopPlay".equals(action)) {
       recorder.stopPlay();
+      blackout.reapplyIfActive();
       sendJson(ex, 200, "{\"ok\":true}");
     } else if ("delete".equals(action)) {
       boolean ok = recorder.delete(f.get("name"));
@@ -746,7 +775,16 @@ public class WebServer {
     if (enabled && recorder.isPlaying()) {
       recorder.stopPlay(); // les tests et la lecture de sequence sont exclusifs
     }
+    // Demander un test, c'est demander de la lumiere : on leve le blackout.
+    // A l'inverse, sortir du mode test remet le silence si le blackout tient
+    // toujours - sinon TestPatterns le levait sans le savoir.
+    if (enabled) {
+      blackout.releaseFor("un scénario de test a été lancé");
+    }
     tests.configure(enabled, pattern, color, brightness, speed, linePusher, lineStrip);
+    if (!enabled) {
+      blackout.reapplyIfActive();
+    }
     sendJson(ex, 200, "{\"ok\":true,\"testMode\":" + tests.isEnabled() + "}");
   }
 
@@ -770,9 +808,11 @@ public class WebServer {
       if (recorder.isPlaying()) {
         recorder.stopPlay();
       }
-      core.blackoutAll();
-      LogBus.info("Blackout manuel envoye depuis l'interface.");
-      sendJson(ex, 200, "{\"ok\":true}");
+      blackout.engage();
+      sendJson(ex, 200, "{\"ok\":true,\"blackoutActive\":true}");
+    } else if ("resume".equals(action)) {
+      blackout.release();
+      sendJson(ex, 200, "{\"ok\":true,\"blackoutActive\":false}");
     } else if ("stop".equals(action)) {
       sendJson(ex, 200, "{\"ok\":true,\"stopping\":true}");
       Main.scheduleShutdown(false);
@@ -847,6 +887,35 @@ public class WebServer {
       } catch (RuntimeException ignored) {
       }
     }
+  }
+
+  /**
+   * Thread unique qui vide la file de logs vers les clients SSE.
+   * Si un client est lent, c'est ce thread qui attend - jamais le reseau Art-Net.
+   */
+  private void startSseDispatcher() {
+    Thread t = new Thread(new Runnable() {
+      public void run() {
+        while (true) {
+          String json;
+          try {
+            json = sseQueue.take();
+          } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return;
+          }
+          for (SseClient c : sseClients) {
+            try {
+              c.send("log", json);
+            } catch (RuntimeException e) {
+              // un client defaillant ne doit jamais interrompre la diffusion
+            }
+          }
+        }
+      }
+    }, "sse-dispatch");
+    t.setDaemon(true);
+    t.start();
   }
 
   private void handleSse(HttpExchange ex) throws IOException {

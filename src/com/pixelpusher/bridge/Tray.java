@@ -26,7 +26,8 @@ public final class Tray {
   }
 
   /** Installe l'icone. Retourne false si l'environnement ne le permet pas. */
-  public static boolean install(final LegacyCore core, final String uiUrl) {
+  public static boolean install(final LegacyCore core, final Blackout blackoutState,
+      final String uiUrl) {
     try {
       if (java.awt.GraphicsEnvironment.isHeadless() || !SystemTray.isSupported()) {
         return false;
@@ -45,14 +46,24 @@ public final class Tray {
       menu.add(open);
       menu.addSeparator();
 
-      MenuItem blackout = new MenuItem("Blackout (tout eteindre)");
+      // Blackout et reprise sont deux entrees distinctes : un blackout
+      // d'urgence ne doit jamais pouvoir etre annule par un clic de travers.
+      MenuItem blackout = new MenuItem("Blackout (tout eteindre et verrouiller)");
       blackout.addActionListener(new ActionListener() {
         public void actionPerformed(ActionEvent e) {
-          core.blackoutAll();
-          LogBus.info("Blackout envoye depuis l'icone systeme.");
+          blackoutState.engage();
+          LogBus.info("Blackout demande depuis l'icone systeme.");
         }
       });
       menu.add(blackout);
+
+      MenuItem reprise = new MenuItem("Reprendre (rendre la main a la console)");
+      reprise.addActionListener(new ActionListener() {
+        public void actionPerformed(ActionEvent e) {
+          blackoutState.release();
+        }
+      });
+      menu.add(reprise);
       menu.addSeparator();
 
       MenuItem restart = new MenuItem("Redemarrer le bridge");

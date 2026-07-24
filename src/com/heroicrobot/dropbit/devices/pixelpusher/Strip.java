@@ -26,6 +26,14 @@ public class Strip {
   private boolean isMonochrome;
   private boolean isRGBW;
 
+  // Les setPixelXxx indexent cette table avec « intensity & 0xff » et non
+  // « (int) intensity » : le parametre est un byte SIGNE, donc toute valeur DMX
+  // superieure ou egale a 128 donnait un index negatif (-128..-1) et levait une
+  // ArrayIndexOutOfBoundsException. Le catch en place ne rattrapait que
+  // NullPointerException : l'exception remontait jusqu'au thread de reception
+  // Art-Net, qui mourait definitivement des qu'une LED depassait 50 % avec la
+  // courbe anti-log activee. Pixel.setColorAntilog masquait deja correctement.
+  // (correction index signe - PixelPusherBridge)
   static final byte sLinearExp[] = { (byte) 0,(byte) 0,(byte) 0,(byte) 0,(byte) 0,(byte) 0,(byte) 1,(byte) 1,(byte) 1,(byte) 1,
     (byte) 1,(byte) 2,(byte) 2,(byte) 2,(byte) 2,(byte) 2,(byte) 3,(byte) 3,(byte) 3,(byte) 3,(byte) 4,(byte) 4,
     (byte) 4,(byte) 4,(byte) 5,(byte) 5,(byte) 5,(byte) 5,(byte) 6,(byte) 6,(byte) 6,(byte) 6,(byte) 7,(byte) 7,
@@ -226,7 +234,7 @@ public class Strip {
       return;
     try {
       if (useAntiLog) {
-        this.pixels[position].red = sLinearExp[(int)intensity];
+        this.pixels[position].red = sLinearExp[intensity & 0xff];
       } else
         this.pixels[position].red = intensity;
     } catch (NullPointerException nope) {
@@ -243,7 +251,7 @@ public class Strip {
       return;
     try {
       if (useAntiLog) {
-        this.pixels[position].blue = sLinearExp[(int)intensity];
+        this.pixels[position].blue = sLinearExp[intensity & 0xff];
       } else
       this.pixels[position].blue = intensity;
     } catch (NullPointerException nope) {
@@ -260,7 +268,7 @@ public class Strip {
       return;
     try {
       if (useAntiLog) {
-        this.pixels[position].green = sLinearExp[(int)intensity];
+        this.pixels[position].green = sLinearExp[intensity & 0xff];
       } else
       this.pixels[position].green = intensity;
     } catch (NullPointerException nope) {
@@ -277,7 +285,7 @@ public class Strip {
       return;
     try {
       if (useAntiLog) {
-        this.pixels[position].orange = sLinearExp[(int)intensity];
+        this.pixels[position].orange = sLinearExp[intensity & 0xff];
       } else
       this.pixels[position].orange = intensity;
     } catch (NullPointerException nope) {
@@ -294,7 +302,7 @@ public synchronized void setPixelWhite(byte intensity, int position) {
       return;
     try {
       if (useAntiLog) {
-        this.pixels[position].white = sLinearExp[(int)intensity];
+        this.pixels[position].white = sLinearExp[intensity & 0xff];
       } else
       this.pixels[position].white = intensity;
     } catch (NullPointerException nope) {
