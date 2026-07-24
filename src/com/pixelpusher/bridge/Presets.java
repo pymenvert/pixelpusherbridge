@@ -31,7 +31,10 @@ public final class Presets {
       return "";
     }
     String s = name.replaceAll("[^\\p{L}\\p{N} _()-]", "").trim();
-    return s.length() > 40 ? s.substring(0, 40) : s;
+    if (s.length() > 40) {
+      s = s.substring(0, 40).trim();
+    }
+    return Names.isReservedOnWindows(s) ? "" : s;
   }
 
   public static List<String> list() {

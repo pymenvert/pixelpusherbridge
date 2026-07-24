@@ -37,7 +37,8 @@ public class WebServer {
   private final StatusService status;
   private final Recorder recorder;
   private Diagnostic diagnostic; // optionnel
-  private HttpServer server;
+  private HttpServer server;          // serveur du JDK (voie normale)
+  private MiniHttpServer miniServer;  // serveur de secours (voir bind())
   private int boundPort = -1;
   private volatile boolean port80Bound = false;
 
@@ -69,44 +70,147 @@ public class WebServer {
     return boundPort;
   }
 
-  /** Demarre le serveur ; essaie le port configure puis les 10 suivants. */
-  public void start() throws IOException {
-    int base = cfg.getWebPort();
+  /**
+   * Reserve le port de l'interface.
+   *
+   * Deux implementations sont tentees dans l'ordre :
+   *  1. le serveur du JDK (com.sun.net.httpserver), le plus eprouve ;
+   *  2. a defaut le serveur de secours en sockets bloquantes (MiniHttpServer).
+   *
+   * Le point important est la distinction entre « port deja pris » et « le
+   * serveur du JDK ne peut pas demarrer du tout ». Dans le second cas — typique
+   * d'un pare-feu qui bloque la connexion en boucle locale dont NIO a besoin —
+   * insister sur les ports suivants est contre-productif : HttpServer.create
+   * reserve le port AVANT d'echouer et ne le relache pas, si bien que chaque
+   * tentative fuit un port. On basculait alors sur onze ports condamnes, sans
+   * interface, et le verrou d'instance unique ne detectait plus rien puisque
+   * ces ports acceptent les connexions sans jamais repondre.
+   */
+  private void bind(int base) throws IOException {
     IOException lastError = null;
+    if (jdkServerUsable()) {
+      for (int p = base; p <= base + 10; p++) {
+        try {
+          server = HttpServer.create(new InetSocketAddress(p), 0);
+          boundPort = p;
+          return;
+        } catch (IOException e) {
+          lastError = e;
+          if (isPortConflict(e)) {
+            LogBus.warn("Port web " + p + " deja utilise, essai du suivant...");
+            continue;
+          }
+          LogBus.warn("Le serveur web du systeme est indisponible (" + e.getMessage() + ").");
+          break;
+        }
+      }
+    } else {
+      LogBus.warn("Le serveur web du systeme ne peut pas demarrer sur cette machine "
+          + "(le selecteur reseau de Java est bloque).");
+      LogBus.warn("Cause quasi certaine : un pare-feu ou un antivirus interdit les connexions "
+          + "en boucle locale. Bascule sur le serveur de secours, sans perte de fonctionnalite.");
+    }
     for (int p = base; p <= base + 10; p++) {
       try {
-        server = HttpServer.create(new InetSocketAddress(p), 0);
-        boundPort = p;
-        break;
+        miniServer = MiniHttpServer.create(new InetSocketAddress(p), 0);
+        boundPort = miniServer.getPort();
+        return;
       } catch (IOException e) {
         lastError = e;
-        LogBus.warn("Port web " + p + " indisponible (" + e.getMessage() + "), essai suivant...");
       }
     }
-    if (server == null) {
-      throw new IOException("Aucun port web disponible entre " + base + " et " + (base + 10), lastError);
+    // Dernier recours : n'importe quel port libre. Mieux vaut une interface sur
+    // un port inhabituel (le QR code et l'icone systeme donnent l'adresse) que
+    // pas d'interface du tout.
+    try {
+      miniServer = MiniHttpServer.create(new InetSocketAddress(0), 0);
+      boundPort = miniServer.getPort();
+      LogBus.warn("Ports " + base + " a " + (base + 10) + " tous indisponibles : "
+          + "l'interface demarre sur le port libre " + boundPort + ".");
+      return;
+    } catch (IOException e) {
+      lastError = e;
+    }
+    throw new IOException("Aucun port web disponible entre " + base + " et " + (base + 10),
+        lastError);
+  }
+
+  /**
+   * Le serveur du JDK est-il utilisable ici ?
+   *
+   * Il repose sur java.nio Selector, qui ouvre une connexion en boucle locale
+   * pour son mecanisme de reveil. Quand un pare-feu la bloque, HttpServer.create
+   * reserve le port PUIS echoue sans le relacher : le port reste occupe pour
+   * toute la duree du processus, il accepte les connexions sans jamais repondre,
+   * et le verrou d'instance unique le prend pour un bridge en marche. On teste
+   * donc le selecteur AVANT de reserver quoi que ce soit.
+   */
+  private static boolean jdkServerUsable() {
+    java.nio.channels.Selector s = null;
+    try {
+      s = java.nio.channels.Selector.open();
+      return true;
+    } catch (Throwable e) {
+      return false;
+    } finally {
+      if (s != null) {
+        try {
+          s.close();
+        } catch (IOException ignored) {
+        }
+      }
+    }
+  }
+
+  /** Distingue « ce port precis est pris » d'une panne generale du serveur. */
+  private static boolean isPortConflict(IOException e) {
+    if (e instanceof java.net.BindException) {
+      return true;
+    }
+    String m = e.getMessage();
+    return m != null && m.toLowerCase(java.util.Locale.ROOT).contains("address already in use");
+  }
+
+  /** Enregistre un endpoint sur l'implementation de serveur retenue. */
+  private void route(String path, HttpHandler handler) {
+    if (server != null) {
+      server.createContext(path, handler);
+    } else if (miniServer != null) {
+      miniServer.createContext(path, handler);
+    }
+  }
+
+  /** true si l'interface tourne sur le serveur de secours (affiche au diagnostic). */
+  public boolean isFallbackServer() {
+    return miniServer != null;
+  }
+
+  /** Demarre le serveur ; essaie le port configure puis les 10 suivants. */
+  public void start() throws IOException {
+    bind(cfg.getWebPort());
+
+    if (server != null) {
+      server.setExecutor(Executors.newCachedThreadPool(new ThreadFactory() {
+        private int n = 0;
+        public synchronized Thread newThread(Runnable r) {
+          Thread t = new Thread(r, "web-" + (n++));
+          t.setDaemon(true);
+          return t;
+        }
+      }));
     }
 
-    server.setExecutor(Executors.newCachedThreadPool(new ThreadFactory() {
-      private int n = 0;
-      public synchronized Thread newThread(Runnable r) {
-        Thread t = new Thread(r, "web-" + (n++));
-        t.setDaemon(true);
-        return t;
-      }
-    }));
-
-    server.createContext("/", new SafeHandler() {
+    route("/", new SafeHandler() {
       void doHandle(HttpExchange ex) throws IOException {
         serveStatic(ex);
       }
     });
-    server.createContext("/api/status", new SafeHandler() {
+    route("/api/status", new SafeHandler() {
       void doHandle(HttpExchange ex) throws IOException {
         sendJson(ex, 200, status.snapshotJson());
       }
     });
-    server.createContext("/api/config", new SafeHandler() {
+    route("/api/config", new SafeHandler() {
       void doHandle(HttpExchange ex) throws IOException {
         if ("POST".equalsIgnoreCase(ex.getRequestMethod())) {
           handleConfigPost(ex);
@@ -115,42 +219,42 @@ public class WebServer {
         }
       }
     });
-    server.createContext("/api/test", new SafeHandler() {
+    route("/api/test", new SafeHandler() {
       void doHandle(HttpExchange ex) throws IOException {
         handleTestPost(ex);
       }
     });
-    server.createContext("/api/action", new SafeHandler() {
+    route("/api/action", new SafeHandler() {
       void doHandle(HttpExchange ex) throws IOException {
         handleAction(ex);
       }
     });
-    server.createContext("/api/logs", new SafeHandler() {
+    route("/api/logs", new SafeHandler() {
       void doHandle(HttpExchange ex) throws IOException {
         handleSse(ex);
       }
     });
-    server.createContext("/api/presets", new SafeHandler() {
+    route("/api/presets", new SafeHandler() {
       void doHandle(HttpExchange ex) throws IOException {
         handlePresets(ex);
       }
     });
-    server.createContext("/api/recorder", new SafeHandler() {
+    route("/api/recorder", new SafeHandler() {
       void doHandle(HttpExchange ex) throws IOException {
         handleRecorder(ex);
       }
     });
-    server.createContext("/api/dmx", new SafeHandler() {
+    route("/api/dmx", new SafeHandler() {
       void doHandle(HttpExchange ex) throws IOException {
         handleDmxMonitor(ex);
       }
     });
-    server.createContext("/qr.svg", new SafeHandler() {
+    route("/qr.svg", new SafeHandler() {
       void doHandle(HttpExchange ex) throws IOException {
         handleQr(ex);
       }
     });
-    server.createContext("/api/diagnostic/download", new SafeHandler() {
+    route("/api/diagnostic/download", new SafeHandler() {
       void doHandle(HttpExchange ex) throws IOException {
         if (diagnostic == null) {
           sendJson(ex, 503, "{\"ok\":false}");
@@ -167,7 +271,7 @@ public class WebServer {
         os.close();
       }
     });
-    server.createContext("/api/diagnostic", new SafeHandler() {
+    route("/api/diagnostic", new SafeHandler() {
       void doHandle(HttpExchange ex) throws IOException {
         if ("/api/diagnostic/download".equals(ex.getRequestURI().getPath())) {
           return; // gere par le contexte plus specifique
@@ -179,13 +283,17 @@ public class WebServer {
         sendJson(ex, 200, diagnostic.toJson());
       }
     });
-    server.createContext("/api/logs/download", new SafeHandler() {
+    route("/api/logs/download", new SafeHandler() {
       void doHandle(HttpExchange ex) throws IOException {
         handleLogDownload(ex);
       }
     });
 
-    server.start();
+    if (server != null) {
+      server.start();
+    } else {
+      miniServer.start();
+    }
 
     // ping SSE toutes les 15 s pour garder les connexions ouvertes
     pinger.scheduleAtFixedRate(new Runnable() {
@@ -206,39 +314,59 @@ public class WebServer {
     });
 
     LogBus.info("Interface web disponible sur http://localhost:" + boundPort + "/");
+    if (miniServer != null) {
+      LogBus.warn("Interface servie par le serveur de secours : le serveur web du systeme "
+          + "n'a pas pu demarrer sur cette machine. Toutes les fonctions sont disponibles.");
+      LogBus.warn("Pour retablir le fonctionnement normal, autorise Java dans le pare-feu "
+          + "ou l'antivirus (il bloque les connexions en boucle locale).");
+    }
 
     // URL courte pour le telephone : un mini-serveur sur le port 80 redirige
     // vers le vrai port (http://IP/m marche alors sans taper :7350).
     // Best effort : sous Linux ou si le port est pris, on continue sans.
     if (boundPort != 80) {
-      try {
-        final HttpServer s80 = HttpServer.create(new InetSocketAddress(80), 0);
-        s80.createContext("/", new SafeHandler() {
-          void doHandle(HttpExchange ex) throws IOException {
-            String host = ex.getRequestHeaders().getFirst("Host");
-            if (host == null || host.isEmpty()) {
-              host = "localhost";
-            }
-            int colon = host.indexOf(':');
-            if (colon >= 0) {
-              host = host.substring(0, colon);
-            }
-            ex.getResponseHeaders().set("Location",
-                "http://" + host + ":" + boundPort + ex.getRequestURI().toString());
-            ex.sendResponseHeaders(302, -1);
-            ex.close();
-          }
-        });
+      startRedirectServer();
+    }
+  }
+
+  /** Redirection du port 80 vers le port reel de l'interface (URL courte telephone). */
+  private void startRedirectServer() {
+    final HttpHandler redirect = new SafeHandler() {
+      void doHandle(HttpExchange ex) throws IOException {
+        String host = ex.getRequestHeaders().getFirst("Host");
+        if (host == null || host.isEmpty()) {
+          host = "localhost";
+        }
+        int colon = host.indexOf(':');
+        if (colon >= 0) {
+          host = host.substring(0, colon);
+        }
+        ex.getResponseHeaders().set("Location",
+            "http://" + host + ":" + boundPort + ex.getRequestURI().toString());
+        ex.sendResponseHeaders(302, -1);
+        ex.close();
+      }
+    };
+    try {
+      if (server != null) {
+        HttpServer s80 = HttpServer.create(new InetSocketAddress(80), 0);
+        s80.createContext("/", redirect);
         s80.setExecutor(server.getExecutor());
         s80.start();
-        port80Bound = true;
-        status.setPort80(true);
-        LogBus.info("URL courte activee : http://<ip-de-cette-machine>/m (redirige vers le port "
-            + boundPort + ")");
-      } catch (Exception e) {
-        LogBus.info("Port 80 indisponible (" + e.getMessage()
-            + ") : l'URL telephone garde le port :" + boundPort + " - le QR code s'en charge.");
+      } else {
+        // Meme raison que pour l'interface : si le serveur du JDK ne demarre
+        // pas, la redirection doit passer par le serveur de secours.
+        MiniHttpServer m80 = MiniHttpServer.create(new InetSocketAddress(80), 0);
+        m80.createContext("/", redirect);
+        m80.start();
       }
+      port80Bound = true;
+      status.setPort80(true);
+      LogBus.info("URL courte activee : http://<ip-de-cette-machine>/m (redirige vers le port "
+          + boundPort + ")");
+    } catch (Exception e) {
+      LogBus.info("Port 80 indisponible (" + e.getMessage()
+          + ") : l'URL telephone garde le port :" + boundPort + " - le QR code s'en charge.");
     }
   }
 
@@ -745,10 +873,25 @@ public class WebServer {
   // ---------- utilitaires HTTP ----------
 
   private static byte[] readAll(InputStream in) throws IOException {
-    ByteArrayOutputStream bos = new ByteArrayOutputStream(32768);
+    return readAll(in, Integer.MAX_VALUE);
+  }
+
+  /**
+   * Lit un flux en s'arretant des que la limite est franchie.
+   *
+   * La verification de taille doit se faire PENDANT la lecture : la controler
+   * apres coup laissait un client malveillant (ou un script qui deraille) faire
+   * grossir la memoire du bridge sans limite avant qu'on ne rejette la requete.
+   */
+  private static byte[] readAll(InputStream in, int maxBytes) throws IOException {
+    ByteArrayOutputStream bos = new ByteArrayOutputStream(8192);
     byte[] buf = new byte[8192];
     int n;
     while ((n = in.read(buf)) > 0) {
+      if (bos.size() + n > maxBytes) {
+        in.close();
+        throw new IOException("Corps de requete trop volumineux (limite " + maxBytes + " octets)");
+      }
       bos.write(buf, 0, n);
     }
     in.close();
@@ -756,10 +899,7 @@ public class WebServer {
   }
 
   private static Map<String, String> parseForm(HttpExchange ex) throws IOException {
-    byte[] raw = readAll(ex.getRequestBody());
-    if (raw.length > 65536) {
-      throw new IOException("Corps de requete trop volumineux");
-    }
+    byte[] raw = readAll(ex.getRequestBody(), 65536);
     String body = new String(raw, StandardCharsets.UTF_8);
     Map<String, String> map = new HashMap<String, String>();
     for (String pair : body.split("&")) {
