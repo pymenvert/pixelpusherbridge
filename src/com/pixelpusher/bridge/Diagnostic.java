@@ -270,6 +270,12 @@ public class Diagnostic {
     }
 
     // ---- systeme ----
+    String corruption = AppConfig.getCorruptionMessage();
+    if (corruption != null) {
+      warn(out, "La configuration a été réinitialisée au démarrage",
+          corruption + " Revérifie tes réglages (ordre des couleurs, luminosité, "
+          + "limite de puissance) avant le spectacle.");
+    }
     File dir = AppConfig.configDir();
     if (!dir.canWrite()) {
       err(out, "Dossier de configuration non accessible en écriture : " + dir,

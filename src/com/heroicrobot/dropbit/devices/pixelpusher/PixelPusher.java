@@ -165,7 +165,12 @@ public class PixelPusher extends DeviceImpl
   }
 
   public Strip getStrip(int stripNumber) {
-    if (stripNumber > stripsAttached)
+    // Borne inclusive corrigee : les index valides vont de 0 a stripsAttached-1.
+    // Avec « > », l'index egal a stripsAttached passait le garde-fou et
+    // strips.get() levait une IndexOutOfBoundsException, non rattrapee sur le
+    // chemin DMX (les update_channel n'attrapaient que NullPointerException).
+    // (PixelPusherBridge)
+    if (stripNumber < 0 || stripNumber >= stripsAttached)
        return null;
     synchronized (stripLock) {
       if (strips == null) {

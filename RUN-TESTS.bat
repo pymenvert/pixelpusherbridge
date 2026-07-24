@@ -39,14 +39,24 @@ if %RESULTAT% NEQ 0 (
     exit /b %RESULTAT%
 )
 
-rem Validation du QR code par un decodeur independant (voir DEVNOTES : OpenCV
-rem n'est pas un juge fiable, ce script embarque son propre decodeur).
 where python >nul 2>nul
 if not errorlevel 1 (
+    echo.
+    echo Verification des interfaces web...
+    python tools\check_web.py
+    if errorlevel 1 (
+        echo.
+        echo Les interfaces web contiennent une erreur. Ne publie pas cette version.
+        exit /b 1
+    )
+
+    rem Validation du QR code par un decodeur independant (voir DEVNOTES : OpenCV
+    rem n'est pas un juge fiable, ce script embarque son propre decodeur).
     if exist dist\PixelPusherBridge.jar (
         echo.
         echo Validation de l'encodeur QR...
         python tools\validate_qr.py dist\PixelPusherBridge.jar
+        if errorlevel 1 exit /b 1
     )
 )
 

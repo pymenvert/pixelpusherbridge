@@ -11,7 +11,9 @@ import com.heroicrobot.dropbit.registry.DeviceRegistry;
 
 class PixelPusherObserver implements Observer {
   public boolean hasStrips = false;
-  public ArtNetMapping mapping = new ArtNetMapping();
+  // volatile : la reference est remplacee par le thread de decouverte et lue
+  // par le thread de reception Art-Net. Voir generateMapping. (PixelPusherBridge)
+  public volatile ArtNetMapping mapping = new ArtNetMapping();
   public HashMap<String,PixelPusher> knownPushers = new HashMap<String,PixelPusher>();
   
   public boolean hasSignificantChange(PixelPusher updatedDevice) {
@@ -51,9 +53,19 @@ class PixelPusherObserver implements Observer {
   }
 
   private void generateMapping(DeviceRegistry registry) {
-    mapping.generateMapping(registry.getPushers(), ArtNetBridge.packing);
-    for (InetAddress address: mapping.multicastAddresses) {
+    // On construit un mapping NEUF avant de publier sa reference, au lieu de
+    // modifier celui que le thread Art-Net est en train de lire.
+    // L'ancienne version remplissait la HashMap deja en service : le thread de
+    // decouverte y faisait des put() pendant que le thread de reception y
+    // faisait 512 get() par paquet. Un redimensionnement de table concurrent
+    // pouvait perdre des entrees ou faire boucler un get() indefiniment.
+    // C'est exactement la strategie deja utilisee par LegacyCore.remap().
+    // (PixelPusherBridge)
+    ArtNetMapping nouveau = new ArtNetMapping();
+    nouveau.generateMapping(registry.getPushers(), ArtNetBridge.packing);
+    for (InetAddress address: nouveau.multicastAddresses) {
     	ArtNetBridge.sacnReceiver.addGroup(address);
     }
+    mapping = nouveau; // publication atomique
   }
 }

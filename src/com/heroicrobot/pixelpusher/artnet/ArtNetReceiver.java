@@ -278,10 +278,13 @@ public class ArtNetReceiver extends Thread {
         break;
       }
 
-    } catch (NullPointerException e) {
-      // System.out.println("No pixel at universe " + universe +
-      // " channel "
-      // + channel);
+    } catch (RuntimeException e) {
+      // Canal non mappe, pusher qui disparait en pleine trame, index hors
+      // ruban : dans tous les cas on ignore ce canal et on passe au suivant.
+      // Le catch d'origine ne visait que NullPointerException, si bien qu'une
+      // IndexOutOfBoundsException remontait jusqu'a tuer le thread de
+      // reception. L'intention etait la meme, la portee etait trop etroite.
+      // (PixelPusherBridge)
     }
   }
 

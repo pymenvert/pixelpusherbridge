@@ -8,7 +8,10 @@ echo ============================================
 
 echo Arret des instances en cours (elles verrouillent le jar)...
 powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='javaw.exe' or Name='java.exe'\" | Where-Object { $_.CommandLine -match 'PixelPusherBridge' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }" >nul 2>nul
-timeout /t 2 /nobreak >nul
+rem ping plutot que timeout : timeout echoue des que l'entree standard est
+rem redirigee (compilation depuis un script ou une CI), et laissait alors le
+rem jar se faire ecraser pendant qu'une JVM le tenait encore.
+ping -n 3 127.0.0.1 >nul 2>nul
 
 
 where javac >nul 2>nul

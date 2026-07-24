@@ -113,10 +113,10 @@ public class SacnReceiver extends Thread {
 		        break;
 		      }
 
-		    } catch (NullPointerException e) {
-		      // System.out.println("No pixel at universe " + universe +
-		      // " channel "
-		      // + channel);
+		    } catch (RuntimeException e) {
+		      // Canal non mappe ou pusher disparu en pleine trame : on ignore ce
+		      // canal. Portee elargie depuis NullPointerException, voir la note
+		      // equivalente dans ArtNetReceiver. (PixelPusherBridge)
 		    }
 		  }
 	
@@ -136,27 +136,64 @@ public class SacnReceiver extends Thread {
 		        System.out.println("sACN:  Got an sACN packet!");
 		        this.seenPacket = true;
 		      }
+		      // ------------------------------------------------------------------
+		      // Validation du paquet E1.31 avant toute exploitation. (PixelPusherBridge)
+		      //
+		      // L'original copiait 512 octets depuis l'offset 126 sans rien verifier.
+		      // Le tampon fait 680 octets, donc pas de debordement visible, mais :
+		      //  - un paquet court injectait dans les LED les restes du paquet
+		      //    precedent, encore presents dans le tampon reutilise ;
+		      //  - les paquets de SYNCHRONISATION, qui ne transportent aucun DMX,
+		      //    etaient joues comme des donnees ;
+		      //  - le start code DMP n'etait pas verifie, donc les trames de service
+		      //    (RDM et autres) etaient traitees comme de l'eclairage.
+		      // ------------------------------------------------------------------
+		      int recu = packet.getLength();
+		      if (recu < 126) {
+		        return; // trop court pour contenir la moindre donnee DMX
+		      }
+		      // Vecteur de la couche framing : 0x00000002 = paquet de donnees DMX.
+		      if (buf[40] != 0 || buf[41] != 0 || buf[42] != 0 || buf[43] != 2) {
+		        return; // synchronisation ou extension : ce n'est pas de l'eclairage
+		      }
+		      // Start code DMP : seul 0 designe des niveaux d'eclairage.
+		      if (buf[125] != 0) {
+		        return;
+		      }
+		      // Nombre de canaux reellement transmis (le compteur inclut le start code),
+		      // borne par ce que le datagramme contient vraiment.
+		      int canaux = ((buf[123] & 0xff) << 8 | (buf[124] & 0xff)) - 1;
+		      if (canaux > recu - 126) {
+		        canaux = recu - 126;
+		      }
+		      if (canaux > 512) {
+		        canaux = 512;
+		      }
+		      if (canaux <= 0) {
+		        return;
+		      }
+
 		      int universe = ((buf[114] & 0xff) | ((buf[113] & 0xff) << 8));
 		      dmxPackets.incrementAndGet();
 		      ArtNetReceiver.universeLastSeen.put(Integer.valueOf(universe), Long.valueOf(System.currentTimeMillis()));
 		      byte[] frameCopy = new byte[512];
-		      System.arraycopy(buf, 126, frameCopy, 0, 512);
+		      System.arraycopy(buf, 126, frameCopy, 0, canaux);
 		      ArtNetReceiver.lastFrame.put(Integer.valueOf(universe), frameCopy);
 		      DmxTap t = ArtNetReceiver.tap;
 		      if (t != null) {
 		        try {
-		          t.onDmx(universe, buf, 126, 512);
+		          t.onDmx(universe, buf, 126, canaux);
 		        } catch (RuntimeException ignored) {
 		        }
 		      }
 		      if (ArtNetReceiver.muteDmx)
 		        return; // mode test actif
 		      //System.out.println("Universe = "+universe);
-		      for (int i = 0; i < 512; i++) {
+		      for (int i = 0; i < canaux; i++) {
 		        // the channel data is in buf[i+126];
 		        update_channel(universe, i + 1, buf[i + 126]);
 		      }
-		     
+
 		  }
 	
 	  @Override

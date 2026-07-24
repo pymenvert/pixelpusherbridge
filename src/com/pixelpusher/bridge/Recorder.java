@@ -48,6 +48,8 @@ public class Recorder {
   private volatile long recStartTs = 0;
   private volatile long recBytes = 0;
   private volatile long recDropped = 0;
+  /** Renseigne quand un enregistrement s'est arrete sur une erreur disque. */
+  private volatile String recError = null;
 
   // lecture
   private volatile boolean playing = false;
@@ -112,6 +114,7 @@ public class Recorder {
     recFrames = 0;
     recBytes = 8;
     recDropped = 0;
+    recError = null;
     recStartTs = System.currentTimeMillis();
     writeQueue = new java.util.concurrent.ArrayBlockingQueue<byte[]>(2048);
     recording = true;
@@ -163,9 +166,27 @@ public class Recorder {
           }
         } catch (InterruptedException ignored) {
         } catch (IOException e) {
-          LogBus.error("Enregistreur : erreur d'ecriture (" + e + "), arret.");
+          // Disque plein, cle USB retiree, dossier devenu inaccessible.
+          // Il faut IMPERATIVEMENT fermer le fichier ici : stopRecord() sort
+          // immediatement quand recording vaut false, si bien que le flux
+          // restait ouvert pour toujours, son tampon de 64 Ko jamais vide, et
+          // l'interface affichait « aucun enregistrement » comme si de rien
+          // n'etait. (PixelPusherBridge)
+          recError = "Enregistrement interrompu : " + e;
+          LogBus.error("Enregistreur : erreur d'écriture (" + e + "). Disque plein ou "
+              + "support retiré ? Le fichier est fermé avec ce qui a pu être capturé.");
           recording = false;
           ArtNetReceiver.tap = null;
+          synchronized (recLock) {
+            try {
+              if (recOut != null) {
+                recOut.flush();
+                recOut.close();
+              }
+            } catch (IOException ignored) {
+            }
+            recOut = null;
+          }
         }
       }
     }, "sequence-writer");
@@ -228,6 +249,11 @@ public class Recorder {
       LogBus.error("Lecture : sequence introuvable : " + name);
       return false;
     }
+    if (f.length() <= MAGIC.length) {
+      LogBus.error("Lecture : la sequence « " + name + " » ne contient aucune trame "
+          + "(enregistrement interrompu trop tot ?). Rien a jouer.");
+      return false;
+    }
     stopPlay();
     playName = name;
     playLoop = loop;
@@ -241,7 +267,18 @@ public class Recorder {
         try {
           do {
             playStartTs = System.currentTimeMillis();
+            long debut = System.currentTimeMillis();
             if (!playFileOnce(f)) {
+              break;
+            }
+            // Garde-fou anti-emballement : une sequence vide ou quasi vide se
+            // termine instantanement. En boucle, on rouvrait alors le fichier
+            // des milliers de fois par seconde et un coeur du processeur partait
+            // a 100 %, au detriment du flux LED. Une passe qui ne dure pas au
+            // moins 200 ms n'est pas une lecture, c'est un fichier inexploitable.
+            if (loopF && System.currentTimeMillis() - debut < 200) {
+              LogBus.warn("Lecture : la séquence « " + playName + " » est vide ou trop courte, "
+                  + "lecture en boucle interrompue.");
               break;
             }
           } while (playing && loopF);
@@ -386,6 +423,7 @@ public class Recorder {
     long now = System.currentTimeMillis();
     sb.append('{');
     sb.append("\"recording\":").append(recording).append(',');
+    sb.append("\"recError\":\"").append(Json.esc(recError == null ? "" : recError)).append("\",");
     sb.append("\"recName\":\"").append(Json.esc(recName)).append("\",");
     sb.append("\"recFrames\":").append(recFrames).append(',');
     sb.append("\"recSeconds\":").append(recording ? (now - recStartTs) / 1000 : 0).append(',');

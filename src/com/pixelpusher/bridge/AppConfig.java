@@ -44,6 +44,17 @@ public class AppConfig {
     return new AppConfig(f);
   }
 
+  /**
+   * Charge la configuration. Ne peut jamais empecher le demarrage.
+   *
+   * Properties.load ne leve pas seulement des IOException : une sequence
+   * d'echappement invalide (un antislash suivi de « u » sans quatre chiffres
+   * hexadecimaux, par exemple un chemin Windows colle a la main) provoque une
+   * IllegalArgumentException. Elle n'etait pas rattrapee et remontait jusqu'au
+   * main, qui mourait avant meme d'avoir demarre le coeur reseau : l'application
+   * ne se lancait plus du tout, sans aucun message. Un fichier illisible est
+   * desormais mis de cote et l'application repart sur ses valeurs par defaut.
+   */
   public static AppConfig load() {
     File f = new File(configDir(), "config.properties");
     AppConfig cfg = new AppConfig(f);
@@ -52,13 +63,29 @@ public class AppConfig {
       try {
         in = new FileInputStream(f);
         cfg.props.load(in);
-      } catch (IOException e) {
-        System.err.println("Config: lecture impossible (" + e + "), valeurs par defaut utilisees.");
+      } catch (Exception e) {
+        closeQuietly(in);
+        in = null;
+        cfg.props.clear();
+        File quarantaine = new File(configDir(),
+            "config.properties.illisible-" + System.currentTimeMillis());
+        boolean deplace = f.renameTo(quarantaine);
+        corruptionMessage = "Le fichier de configuration etait illisible (" + e
+            + "). Les valeurs par defaut ont ete retablies."
+            + (deplace ? " L'ancien fichier est conserve sous " + quarantaine.getName() + "." : "");
+        System.err.println("Config: " + corruptionMessage);
       } finally {
         closeQuietly(in);
       }
     }
     return cfg;
+  }
+
+  /** Message a afficher si la configuration a du etre reinitialisee, sinon null. */
+  private static volatile String corruptionMessage = null;
+
+  public static String getCorruptionMessage() {
+    return corruptionMessage;
   }
 
   public synchronized void save() {

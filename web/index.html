@@ -773,6 +773,7 @@
       </div>
     </div>
 
+    <div id="cfgWarn" class="banner wd" style="margin-top:14px"></div>
     <div class="card" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <button class="btn" id="saveBtn">Enregistrer</button>
       <button class="btn sec" id="remapBtn" type="button">Forcer un remappage</button>
@@ -1431,8 +1432,23 @@ function calcCopy(){
 }
 
 /* ---------- configuration ---------- */
+/* Tant que la configuration n'a pas ete lue avec succes, le formulaire affiche
+   les valeurs par defaut du HTML (tout decoche, RGB, 100 %). Enregistrer a ce
+   moment-la ecrasait silencieusement TOUS les reglages par ces valeurs. On
+   interdit donc l'enregistrement tant que la lecture n'a pas abouti. */
+var cfgLoaded=false;
+function setCfgLoaded(ok,message){
+  cfgLoaded=ok;
+  var b=$("saveBtn"), w=$("cfgWarn");
+  if(b){b.disabled=!ok;b.style.opacity=ok?"":"0.5";b.style.cursor=ok?"":"not-allowed";
+        b.title=ok?"":"Configuration non chargée — enregistrement bloqué";}
+  if(w){w.textContent=message||"";w.classList.toggle("show",!ok);}
+}
 function loadConfig(){
-  fetch("/api/config").then(function(r){return r.json();}).then(function(c){
+  fetch("/api/config").then(function(r){
+    if(!r.ok)throw new Error("HTTP "+r.status);
+    return r.json();
+  }).then(function(c){
     $("c_colourOrder").value=c.colourOrder;
     $("c_packing").checked=c.packing;
     $("c_sacnEnabled").checked=c.sacnEnabled;
@@ -1450,11 +1466,21 @@ function loadConfig(){
     $("c_openBrowser").checked=c.openBrowser;
     $("c_watchdogSec").value=c.watchdogSec;
     $("c_blackoutOnExit").checked=c.blackoutOnExit;
+    setCfgLoaded(true);
+  }).catch(function(){
+    setCfgLoaded(false,"Configuration non chargée — le bridge n'a pas répondu. "+
+      "N'enregistre pas : tu écraserais tous tes réglages par des valeurs vides. "+
+      "Recharge la page quand le bridge répond de nouveau.");
   });
 }
+setCfgLoaded(false,"Chargement de la configuration…");
 loadConfig();
 $("c_brightness").addEventListener("input",function(){$("c_brightnessVal").textContent=this.value+" %";});
 $("saveBtn").addEventListener("click",function(){
+  if(!cfgLoaded){
+    toast("Configuration non chargée — enregistrement bloqué pour ne rien écraser.","err");
+    return;
+  }
   post("/api/config",{
     colourOrder:$("c_colourOrder").value,
     packing:$("c_packing").checked,
