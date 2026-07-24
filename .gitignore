@@ -1,0 +1,21 @@
+# Compilation
+build/
+*.class
+sources_list.txt
+
+# Binaires générés (à distribuer via GitHub Releases, pas dans le dépôt)
+dist/*.jar
+dist/*.zip
+dist/PixelPusher Bridge.app/Contents/Resources/*.jar
+
+# Système
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.idea/
+.vscode/
+*.iml
+.project
+.classpath

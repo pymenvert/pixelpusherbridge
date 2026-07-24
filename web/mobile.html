@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0b0e14">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b0e14'/%3E%3Crect x='5' y='6' width='22' height='4' rx='2' fill='%23f87171'/%3E%3Crect x='5' y='14' width='22' height='4' rx='2' fill='%2334d399'/%3E%3Crect x='5' y='22' width='22' height='4' rx='2' fill='%2322d3ee'/%3E%3C/svg%3E">
+<title>PixelPusher Bridge</title>
+<style>
+  :root{
+    --bg:#0b0e14; --panel:#171c27; --panel2:#1f2735; --border:#2a3345;
+    --text:#e6ebf4; --muted:#8b98ad; --acc:#6366f1; --acc2:#22d3ee;
+    --ok:#34d399; --warn:#fbbf24; --err:#f87171;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    font-size:16px;padding-bottom:40px}
+  header{display:flex;align-items:center;gap:12px;padding:14px 16px;
+    background:var(--panel);border-bottom:1px solid var(--border);
+    position:sticky;top:0;z-index:10}
+  .logo{width:34px;height:34px;border-radius:9px;flex:none;
+    background:conic-gradient(from 200deg,#f87171,#fbbf24,#34d399,#22d3ee,#6366f1,#f87171)}
+  header h1{font-size:16px;margin:0;flex:1}
+  #dot{width:12px;height:12px;border-radius:50%;background:var(--err);flex:none}
+  #dot.ok{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+  main{padding:14px;max-width:520px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:16px}
+  .lbl{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.7px;
+    font-weight:600;margin-bottom:10px}
+  #stateLine{font-size:14px;color:var(--muted);line-height:1.6}
+  #stateLine b{color:var(--text)}
+  .bigbtn{display:block;width:100%;padding:20px;border:none;border-radius:16px;
+    font-size:19px;font-weight:700;font-family:inherit;cursor:pointer;
+    background:linear-gradient(135deg,#7f1d1d,#b91c1c);color:#fff;
+    box-shadow:0 6px 20px rgba(185,28,28,.35)}
+  .bigbtn:active{transform:scale(.97)}
+  input[type=range]{width:100%;height:34px;accent-color:var(--acc)}
+  .rowflex{display:flex;align-items:center;gap:12px}
+  .val{min-width:52px;text-align:right;font-weight:650;font-variant-numeric:tabular-nums}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .tbtn{padding:16px 8px;border-radius:13px;border:1px solid var(--border);
+    background:var(--panel2);color:var(--text);font-size:14.5px;font-weight:600;
+    font-family:inherit;cursor:pointer;text-align:center}
+  .tbtn:active{transform:scale(.97)}
+  .tbtn.sel{border-color:var(--acc2);background:rgba(34,211,238,.15)}
+  .tbtn .ic{font-size:20px;display:block;margin-bottom:4px}
+  .switchrow{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+  .switch{position:relative;width:52px;height:30px;flex:none}
+  .switch input{opacity:0;width:0;height:0}
+  .sl{position:absolute;inset:0;background:var(--panel2);border:1px solid var(--border);
+    border-radius:30px;cursor:pointer;transition:.2s}
+  .sl:before{content:"";position:absolute;width:22px;height:22px;border-radius:50%;
+    background:var(--muted);top:3px;left:4px;transition:.2s}
+  .switch input:checked + .sl{background:rgba(99,102,241,.5);border-color:var(--acc)}
+  .switch input:checked + .sl:before{transform:translateX(21px);background:#fff}
+  .list{display:flex;flex-direction:column;gap:8px}
+  .item{display:flex;align-items:center;gap:10px;background:var(--panel2);
+    border:1px solid var(--border);border-radius:12px;padding:11px 13px;font-size:14.5px}
+  .item .n{flex:1;font-weight:550;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .item button{border:none;border-radius:9px;padding:9px 14px;font-family:inherit;
+    font-weight:650;font-size:13px;cursor:pointer}
+  .item .play{background:rgba(52,211,153,.15);color:var(--ok)}
+  .item .stop{background:rgba(248,113,113,.15);color:var(--err)}
+  .item .load{background:rgba(99,102,241,.2);color:#a5b4fc}
+  .empty{color:var(--muted);font-size:13.5px}
+  .banner{display:none;border-radius:12px;padding:10px 14px;font-size:13.5px;
+    background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.4);color:var(--warn)}
+  .banner.show{display:block}
+  #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);
+    background:var(--panel2);border:1px solid var(--border);border-radius:12px;
+    padding:11px 18px;font-size:14px;opacity:0;transition:.3s;pointer-events:none;
+    white-space:nowrap;max-width:90vw;overflow:hidden;text-overflow:ellipsis}
+  #toast.show{opacity:1}
+  a.desktop{color:var(--muted);font-size:13px;text-align:center;display:block;
+    margin-top:6px;text-decoration:none}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo"></div>
+  <h1>PixelPusher Bridge</h1>
+  <div id="dot"></div>
+</header>
+<main>
+  <div id="banner" class="banner"></div>
+
+  <div class="card">
+    <div class="lbl">État</div>
+    <div id="stateLine">Connexion au bridge…</div>
+  </div>
+
+  <button class="bigbtn" onclick="blackout()">&#9899;&nbsp; BLACKOUT</button>
+
+  <div class="card">
+    <div class="lbl">Luminosité globale</div>
+    <div class="rowflex">
+      <input type="range" id="bright" min="1" max="100" value="100">
+      <span class="val" id="brightVal">100 %</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="lbl">Test rapide</div>
+    <div class="switchrow">
+      <label class="switch"><input type="checkbox" id="testOn"><span class="sl"></span></label>
+      <span>Mode test <span style="color:var(--muted);font-size:13px">(coupe l'Art-Net entrant)</span></span>
+    </div>
+    <div class="grid2">
+      <button class="tbtn sel" data-p="solid"><span class="ic">&#128308;</span>Couleur unie</button>
+      <button class="tbtn" data-p="white"><span class="ic">&#9728;</span>Blanc 100 %</button>
+      <button class="tbtn" data-p="rgbcycle"><span class="ic">&#127752;</span>Cycle RVB</button>
+      <button class="tbtn" data-p="lineseq"><span class="ic">&#8645;</span>Séquence lignes</button>
+    </div>
+    <div class="rowflex" style="margin-top:12px">
+      <span style="color:var(--muted);font-size:14px">Couleur</span>
+      <input type="color" id="testColor" value="#ff0000"
+        style="flex:1;height:42px;border:1px solid var(--border);border-radius:10px;background:var(--panel2)">
+    </div>
+    <div id="testLabel" style="margin-top:10px;color:var(--acc2);font-weight:650;min-height:20px"></div>
+  </div>
+
+  <div class="card">
+    <div class="lbl">Presets</div>
+    <div class="list" id="presetList"><span class="empty">Aucun preset — crée-les depuis l'interface complète.</span></div>
+  </div>
+
+  <div class="card">
+    <div class="lbl">Séquences enregistrées</div>
+    <div class="list" id="recList"><span class="empty">Aucune séquence.</span></div>
+  </div>
+
+  <a class="desktop" href="/">Ouvrir l'interface complète &rarr;</a>
+  <div style="text-align:center;color:#3d4759;font-size:10.5px;margin-top:10px">
+    PixelPusher Bridge — © 2026 Pierre Yves Mansour · Collectif WSK
+  </div>
+</main>
+<div id="toast"></div>
+
+<script>
+"use strict";
+function $(id){return document.getElementById(id);}
+function post(url,data){
+  return fetch(url,{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},
+    body:new URLSearchParams(data).toString()}).then(function(r){return r.json();});
+}
+var toastTimer=null;
+function toast(m){
+  var t=$("toast");t.textContent=m;t.classList.add("show");
+  clearTimeout(toastTimer);toastTimer=setTimeout(function(){t.classList.remove("show");},2500);
+}
+function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+
+/* ---------- état ---------- */
+var fails=0, touched=false, curPattern="solid", playingName="";
+function refresh(){
+  fetch("/api/status",{cache:"no-store"}).then(function(r){return r.json();}).then(function(s){
+    fails=0;$("dot").classList.add("ok");
+    var line="<b>"+s.pushers.length+"</b> PixelPusher(s) · <b>"+s.artnetPps+"</b> pqt/s Art-Net";
+    if(s.health&&!s.health.dmxDataRecent&&!s.testMode&&!(s.recorder&&s.recorder.playing))
+      line+=" · <span style='color:var(--warn)'>pas de données DMX</span>";
+    $("stateLine").innerHTML=line;
+    if(!touched)$("testOn").checked=s.testMode;
+    $("testLabel").textContent=s.testMode?(s.testLabel||""):"";
+    var b=$("banner"),msgs=[];
+    if(s.testMode)msgs.push("Mode test actif — Art-Net entrant ignoré.");
+    if(s.recorder&&s.recorder.playing)msgs.push("Lecture : "+s.recorder.playName+(s.recorder.playLoop?" (boucle)":""));
+    if(s.recorder&&s.recorder.recording)msgs.push("⏺ Enregistrement : "+s.recorder.recName+" ("+s.recorder.recSeconds+" s)");
+    if(s.watchdogTriggered)msgs.push("Watchdog déclenché — blackout de sécurité.");
+    b.textContent=msgs.join(" · ");b.classList.toggle("show",msgs.length>0);
+    playingName=(s.recorder&&s.recorder.playing)?s.recorder.playName:"";
+    renderRecButtons();
+  }).catch(function(){
+    fails++;if(fails>=3)$("dot").classList.remove("ok");
+  });
+}
+setInterval(refresh,2000);refresh();
+
+/* ---------- actions ---------- */
+function blackout(){
+  post("/api/action",{action:"blackout"}).then(function(){toast("Blackout envoyé");touched=false;})
+    .catch(function(){toast("Bridge injoignable");});
+}
+var brightTimer=null;
+$("bright").addEventListener("input",function(){
+  $("brightVal").textContent=this.value+" %";
+  var v=this.value;
+  clearTimeout(brightTimer);
+  brightTimer=setTimeout(function(){
+    post("/api/config",{brightness:(v/100).toFixed(2)}).then(function(){toast("Luminosité "+v+" %");});
+  },350);
+});
+fetch("/api/config").then(function(r){return r.json();}).then(function(c){
+  $("bright").value=Math.round(c.brightness*100);
+  $("brightVal").textContent=Math.round(c.brightness*100)+" %";
+});
+
+/* ---------- test ---------- */
+function sendTest(){
+  touched=true;
+  post("/api/test",{enabled:$("testOn").checked,pattern:curPattern,
+    color:$("testColor").value,brightness:100,speed:1,linePusher:-1,lineStrip:-1})
+    .then(function(){setTimeout(function(){touched=false;},1500);});
+}
+$("testOn").addEventListener("change",sendTest);
+$("testColor").addEventListener("change",function(){curPattern="solid";selBtn();sendTest();});
+document.querySelectorAll(".tbtn").forEach(function(b){
+  b.addEventListener("click",function(){
+    curPattern=b.dataset.p;selBtn();
+    $("testOn").checked=true;sendTest();
+  });
+});
+function selBtn(){
+  document.querySelectorAll(".tbtn").forEach(function(x){
+    x.classList.toggle("sel",x.dataset.p===curPattern);
+  });
+}
+
+/* ---------- presets ---------- */
+function loadPresets(){
+  fetch("/api/presets").then(function(r){return r.json();}).then(function(d){
+    var el=$("presetList");
+    if(!d.presets.length){el.innerHTML='<span class="empty">Aucun preset — crée-les depuis l’interface complète.</span>';return;}
+    el.innerHTML=d.presets.map(function(n){
+      return '<div class="item"><span class="n">'+esc(n)+'</span>'
+        +'<button class="load" data-n="'+esc(n)+'">Charger</button></div>';
+    }).join("");
+    el.querySelectorAll(".load").forEach(function(b){
+      b.addEventListener("click",function(){
+        post("/api/presets",{action:"load",name:b.dataset.n}).then(function(r){
+          toast(r.ok?"Preset chargé : "+b.dataset.n:"Erreur");
+        });
+      });
+    });
+  });
+}
+loadPresets();setInterval(loadPresets,15000);
+
+/* ---------- séquences ---------- */
+var recData=[];
+function loadRecs(){
+  fetch("/api/recorder").then(function(r){return r.json();}).then(function(d){
+    recData=d.recordings;renderRecButtons();
+  });
+}
+function renderRecButtons(){
+  var el=$("recList");
+  if(!recData.length){el.innerHTML='<span class="empty">Aucune séquence — enregistre depuis l’interface complète.</span>';return;}
+  el.innerHTML=recData.map(function(rec){
+    var isPlaying=rec.name===playingName;
+    return '<div class="item"><span class="n">'+esc(rec.name)
+      +' <span style="color:var(--muted);font-size:12px">'+rec.durationSec+' s</span></span>'
+      +(isPlaying
+        ?'<button class="stop" data-n="'+esc(rec.name)+'">&#9632; Stop</button>'
+        :'<button class="play" data-n="'+esc(rec.name)+'">&#9654; Boucle</button>')
+      +'</div>';
+  }).join("");
+  el.querySelectorAll(".play").forEach(function(b){
+    b.addEventListener("click",function(){
+      post("/api/recorder",{action:"play",name:b.dataset.n,loop:true})
+        .then(function(){toast("Lecture : "+b.dataset.n);refresh();});
+    });
+  });
+  el.querySelectorAll(".stop").forEach(function(b){
+    b.addEventListener("click",function(){
+      post("/api/recorder",{action:"stopPlay"}).then(function(){toast("Lecture arrêtée");refresh();});
+    });
+  });
+}
+loadRecs();setInterval(loadRecs,15000);
+</script>
+</body>
+</html>

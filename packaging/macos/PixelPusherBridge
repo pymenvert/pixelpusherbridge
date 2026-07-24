@@ -1,0 +1,86 @@
+#!/bin/bash
+# Lanceur PixelPusher Bridge (macOS)
+# Trouve un Java FONCTIONNEL (embarque > telecharge > systeme) ou propose de
+# le telecharger, puis lance le bridge. Toute erreur devient un dialogue visible.
+set -u
+
+DIR="$(cd "$(dirname "$0")/.." && pwd)"       # Contents/
+RES="$DIR/Resources"
+SUPPORT="$HOME/Library/Application Support/PixelPusherBridge"
+mkdir -p "$SUPPORT" 2>/dev/null || SUPPORT="/tmp/PixelPusherBridge"
+mkdir -p "$SUPPORT" 2>/dev/null || true
+LOG="$SUPPORT/launcher.log"
+exec >>"$LOG" 2>&1
+echo "=== $(date) : lancement (macOS $(sw_vers -productVersion 2>/dev/null), $(uname -m)) ==="
+
+dialog() { # $1 = message, $2 = boutons AppleScript, $3 = bouton par defaut
+  /usr/bin/osascript -e "display dialog \"$1\" buttons $2 default button $3 with title \"PixelPusher Bridge\"" 2>/dev/null
+}
+
+# PIEGE macOS : /usr/bin/java existe TOUJOURS, meme sans Java installe
+# (c est un leurre qui affiche une erreur). Un candidat n est valide que
+# s il sait vraiment executer "-version".
+java_ok() {
+  [ -n "${1:-}" ] && [ -x "${1:-}" ] && "$1" -version >/dev/null 2>&1
+}
+
+find_java() {
+  c="$DIR/runtime/Contents/Home/bin/java"
+  if java_ok "$c"; then echo "$c"; return; fi
+  c="$SUPPORT/jre/bin/java"
+  if java_ok "$c"; then echo "$c"; return; fi
+  if [ -x /usr/libexec/java_home ]; then
+    jh="$(/usr/libexec/java_home -v 11+ 2>/dev/null || true)"
+    c="$jh/bin/java"
+    if [ -n "$jh" ] && java_ok "$c"; then echo "$c"; return; fi
+  fi
+  c="$(command -v java 2>/dev/null || true)"
+  if java_ok "$c"; then echo "$c"; return; fi
+  echo ""
+}
+
+JAVA="$(find_java)"
+
+if [ -z "$JAVA" ]; then
+  echo "Aucun Java fonctionnel trouve, proposition de telechargement."
+  ANSWER="$(dialog "PixelPusher Bridge a besoin de Java, absent de ce Mac.\n\nLe telecharger automatiquement ? (~45 Mo, une seule fois)" '{"Annuler","Telecharger"}' 2 || true)"
+  case "$ANSWER" in
+    *Telecharger*) ;;
+    *) echo "Telechargement refuse."; exit 1 ;;
+  esac
+
+  ARCH="aarch64"
+  [ "$(uname -m)" = "x86_64" ] && ARCH="x64"
+  URL="https://api.adoptium.net/v3/binary/latest/21/ga/mac/$ARCH/jre/hotspot/normal/eclipse"
+  TMPF="$SUPPORT/jre-download.tar.gz"
+  echo "Telechargement du JRE : $URL"
+  if ! curl -fL --connect-timeout 20 -o "$TMPF" "$URL"; then
+    dialog "Telechargement impossible (connexion internet ?).\n\nInstalle Java depuis adoptium.net puis relance PixelPusher Bridge." '{"OK"}' 1 || true
+    exit 1
+  fi
+  rm -rf "$SUPPORT/jre-tmp"
+  mkdir -p "$SUPPORT/jre-tmp"
+  tar -xzf "$TMPF" -C "$SUPPORT/jre-tmp"
+  HOME_DIR="$(find "$SUPPORT/jre-tmp" -type d -path "*Contents/Home" 2>/dev/null | head -1)"
+  rm -rf "$SUPPORT/jre"
+  if [ -n "$HOME_DIR" ]; then
+    mv "$HOME_DIR" "$SUPPORT/jre"
+  fi
+  rm -rf "$SUPPORT/jre-tmp" "$TMPF"
+  JAVA="$SUPPORT/jre/bin/java"
+  if ! java_ok "$JAVA"; then
+    dialog "Le Java telecharge ne fonctionne pas sur ce Mac.\n\nInstalle Java depuis adoptium.net puis relance PixelPusher Bridge." '{"OK"}' 1 || true
+    exit 1
+  fi
+  echo "JRE installe dans $SUPPORT/jre"
+fi
+
+echo "Java utilise : $JAVA"
+# UIElement=true : pas d icone Dock, l app vit dans la barre de menus (point vert)
+"$JAVA" -Dapple.awt.UIElement=true -Xdock:name="PixelPusher Bridge" -jar "$RES/PixelPusherBridge.jar"
+EC=$?
+echo "Java termine avec le code $EC"
+if [ $EC -ne 0 ]; then
+  dialog "PixelPusher Bridge s est arrete avec une erreur (code $EC).\n\nDetails dans :\n~/Library/Application Support/PixelPusherBridge/launcher.log" '{"OK"}' 1 || true
+  exit $EC
+fi

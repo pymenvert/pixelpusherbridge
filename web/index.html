@@ -1,0 +1,1411 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b0e14'/%3E%3Crect x='5' y='6' width='22' height='4' rx='2' fill='%23f87171'/%3E%3Crect x='5' y='14' width='22' height='4' rx='2' fill='%2334d399'/%3E%3Crect x='5' y='22' width='22' height='4' rx='2' fill='%2322d3ee'/%3E%3C/svg%3E">
+<title>PixelPusher Bridge</title>
+<style>
+  :root{
+    --bg:#0b0e14; --panel:rgba(23,28,39,.75); --panel-solid:#171c27; --panel2:#1f2735;
+    --border:#2a3345; --text:#e6ebf4; --muted:#8b98ad; --muted2:#5d6a80;
+    --acc:#6366f1; --acc2:#22d3ee; --ok:#34d399; --warn:#fbbf24; --err:#f87171;
+    --r:14px; --shadow:0 8px 30px rgba(0,0,0,.35);
+  }
+  *{box-sizing:border-box}
+  html{scrollbar-color:#2a3345 transparent}
+  body{margin:0;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5;
+    font-family:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+    background-image:radial-gradient(1200px 500px at 80% -10%, rgba(99,102,241,.09), transparent),
+                     radial-gradient(900px 400px at 10% -10%, rgba(34,211,238,.07), transparent);}
+  ::selection{background:rgba(99,102,241,.4)}
+
+  /* ---------- header ---------- */
+  header{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:14px;
+    padding:12px 24px;background:rgba(11,14,20,.8);backdrop-filter:blur(14px);
+    border-bottom:1px solid var(--border)}
+  .logo{width:38px;height:38px;border-radius:10px;flex:none;position:relative;
+    background:conic-gradient(from 200deg,#f87171,#fbbf24,#34d399,#22d3ee,#6366f1,#f87171);
+    box-shadow:0 0 18px rgba(99,102,241,.45)}
+  .logo:after{content:"";position:absolute;inset:3px;border-radius:8px;background:#0b0e14;
+    background-image:repeating-linear-gradient(90deg,transparent 0 3px,rgba(255,255,255,.22) 3px 5px)}
+  header h1{font-size:16px;margin:0;font-weight:650;letter-spacing:.2px}
+  header .sub{color:var(--muted);font-size:11.5px}
+  .hspacer{flex:1}
+  #connBadge{display:flex;align-items:center;gap:7px;padding:5px 13px;border-radius:20px;
+    font-size:12px;font-weight:600;background:rgba(52,211,153,.1);color:var(--ok);
+    border:1px solid rgba(52,211,153,.35);transition:.3s}
+  #connBadge .pulse{width:8px;height:8px;border-radius:50%;background:var(--ok);
+    animation:pulse 2s infinite}
+  #connBadge.off{background:rgba(248,113,113,.1);color:var(--err);border-color:rgba(248,113,113,.35)}
+  #connBadge.off .pulse{background:var(--err);animation:none}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(52,211,153,.5)}70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
+  .hbtn{display:flex;align-items:center;gap:6px;background:var(--panel2);color:var(--text);
+    border:1px solid var(--border);border-radius:9px;padding:7px 13px;font-size:12.5px;
+    cursor:pointer;font-family:inherit;transition:.15s;font-weight:550}
+  .hbtn:hover{border-color:var(--acc);transform:translateY(-1px)}
+  .hbtn.danger{color:var(--err)} .hbtn.danger:hover{border-color:var(--err)}
+  .hbtn.warn{color:var(--warn)} .hbtn.warn:hover{border-color:var(--warn)}
+
+  /* ---------- nav ---------- */
+  nav{display:flex;gap:6px;padding:14px 24px 0;max-width:1160px;margin:0 auto;flex-wrap:wrap}
+  nav button{background:transparent;border:1px solid transparent;color:var(--muted);
+    padding:8px 16px;cursor:pointer;font-size:13.5px;font-weight:550;font-family:inherit;
+    border-radius:10px;transition:.18s}
+  nav button:hover{color:var(--text);background:var(--panel)}
+  nav button.active{color:#fff;background:linear-gradient(135deg,rgba(99,102,241,.25),rgba(34,211,238,.15));
+    border-color:rgba(99,102,241,.5)}
+  main{padding:18px 24px 60px;max-width:1160px;margin:0 auto}
+  .tab{display:none;animation:fadeIn .25s ease}
+  .tab.active{display:block}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+  /* ---------- composants ---------- */
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:var(--r);
+    padding:18px;backdrop-filter:blur(8px);transition:border-color .2s}
+  .grid{display:grid;gap:14px}
+  .tiles{grid-template-columns:repeat(auto-fit,minmax(165px,1fr))}
+  .tile{position:relative;overflow:hidden;padding:14px 16px}
+  .tile .lbl{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.8px;font-weight:600}
+  .tile .big{font-size:26px;font-weight:650;margin-top:2px;font-variant-numeric:tabular-nums}
+  .tile .unit{font-size:12px;color:var(--muted);font-weight:400}
+  .tile canvas{position:absolute;left:0;right:0;bottom:0;width:100%;height:34px;opacity:.8}
+  h2{font-size:14.5px;margin:26px 0 12px;font-weight:650;display:flex;align-items:center;gap:8px}
+  h2:first-child{margin-top:0}
+  h2 .ic{opacity:.7}
+  .hint{color:var(--muted);font-size:12.5px}
+  .badge{display:inline-block;padding:2px 9px;border-radius:12px;font-size:11px;font-weight:600;
+    background:rgba(99,102,241,.15);color:#a5b4fc;border:1px solid rgba(99,102,241,.3);white-space:nowrap}
+  .banner{border-radius:var(--r);padding:12px 16px;margin-bottom:14px;display:none;
+    font-size:13px;animation:fadeIn .25s ease}
+  .banner.show{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .banner.test{background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.4);color:var(--warn)}
+  .banner.wd{background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.4);color:var(--err)}
+  .banner.play{background:rgba(34,211,238,.08);border:1px solid rgba(34,211,238,.4);color:var(--acc2)}
+  .banner.rec{background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.4);color:var(--err)}
+
+  /* santé */
+  .health{display:flex;flex-direction:column;gap:2px;padding:8px 18px}
+  .health .item{display:flex;align-items:flex-start;gap:12px;padding:9px 0;
+    border-bottom:1px solid rgba(42,51,69,.5)}
+  .health .item:last-child{border-bottom:none}
+  .dot{width:9px;height:9px;border-radius:50%;flex:none;margin-top:5px}
+  .dot.ok{background:var(--ok);box-shadow:0 0 8px rgba(52,211,153,.7)}
+  .dot.ko{background:var(--err);box-shadow:0 0 8px rgba(248,113,113,.7)}
+  .health .t{font-weight:550}
+  .health .d{color:var(--muted);font-size:12px;margin-top:1px}
+
+  table{width:100%;border-collapse:collapse}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid rgba(42,51,69,.6);font-size:13px}
+  th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.6px}
+  tr:last-child td{border-bottom:none}
+  .chip{display:inline-block;background:var(--panel2);border:1px solid var(--border);
+    border-radius:14px;padding:4px 12px;margin:3px;font-size:12px}
+  .chip b{color:var(--acc2)}
+  .tag{padding:3px 10px;border-radius:11px;font-size:11px;font-weight:600}
+  .tag.on{background:rgba(52,211,153,.13);color:var(--ok)}
+  .tag.off{background:rgba(248,113,113,.13);color:var(--err)}
+  .tag.warn{background:rgba(251,191,36,.13);color:var(--warn)}
+
+  /* config */
+  .sect{margin-bottom:16px}
+  .row{display:grid;grid-template-columns:minmax(200px,260px) minmax(150px,auto) 1fr;
+    gap:8px 18px;align-items:center;padding:13px 0;border-bottom:1px solid rgba(42,51,69,.5)}
+  .row:last-child{border-bottom:none}
+  .row .name{font-weight:550}
+  .row .name small{display:block;color:var(--muted);font-weight:400;font-size:12px;margin-top:2px}
+  .row .adv{display:flex;flex-direction:column;gap:5px;align-items:flex-start}
+  input[type=number],select,input[type=search],input[type=text]{background:var(--panel2);color:var(--text);
+    border:1px solid var(--border);border-radius:8px;padding:7px 11px;width:120px;
+    font-family:inherit;font-size:13px;transition:.15s}
+  input:focus,select:focus{outline:none;border-color:var(--acc)}
+  select{width:150px;cursor:pointer}
+  input[type=text]{width:180px}
+  input[type=range]{width:170px;accent-color:var(--acc);cursor:pointer}
+  input[type=color]{width:46px;height:32px;border:1px solid var(--border);border-radius:8px;
+    background:var(--panel2);padding:2px;cursor:pointer}
+  .switch{position:relative;width:42px;height:23px;flex:none;display:inline-block}
+  .switch input{opacity:0;width:0;height:0}
+  .sl{position:absolute;inset:0;background:var(--panel2);border:1px solid var(--border);
+    border-radius:23px;cursor:pointer;transition:.2s}
+  .sl:before{content:"";position:absolute;width:16px;height:16px;border-radius:50%;
+    background:var(--muted);top:3px;left:3px;transition:.2s}
+  .switch input:checked + .sl{background:linear-gradient(135deg,rgba(99,102,241,.5),rgba(34,211,238,.35));border-color:var(--acc)}
+  .switch input:checked + .sl:before{transform:translateX(19px);background:#fff}
+  .btn{background:linear-gradient(135deg,var(--acc),#4f8ef7);color:#fff;border:none;
+    border-radius:10px;padding:10px 20px;font-size:13.5px;font-weight:600;cursor:pointer;
+    font-family:inherit;transition:.15s;box-shadow:0 4px 14px rgba(99,102,241,.3)}
+  .btn:hover{filter:brightness(1.12);transform:translateY(-1px)}
+  .btn.sec{background:var(--panel2);color:var(--text);border:1px solid var(--border);
+    box-shadow:none;font-weight:500}
+  .btn.sec:hover{border-color:var(--acc)}
+  .btn.danger{background:rgba(248,113,113,.12);color:var(--err);
+    border:1px solid rgba(248,113,113,.4);box-shadow:none}
+  .btn.warnb{background:rgba(251,191,36,.12);color:var(--warn);
+    border:1px solid rgba(251,191,36,.4);box-shadow:none}
+  .btn.okb{background:rgba(52,211,153,.12);color:var(--ok);
+    border:1px solid rgba(52,211,153,.4);box-shadow:none}
+
+  /* tests */
+  .mastertest{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .patterns{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin:14px 0}
+  .pat{background:var(--panel2);border:1px solid var(--border);border-radius:12px;
+    padding:13px 12px;cursor:pointer;transition:.15s;text-align:center}
+  .pat:hover{border-color:var(--acc);transform:translateY(-2px)}
+  .pat.sel{border-color:var(--acc);background:linear-gradient(135deg,rgba(99,102,241,.2),rgba(34,211,238,.1));
+    box-shadow:0 0 16px rgba(99,102,241,.25)}
+  .pat .ico{font-size:21px;margin-bottom:5px}
+  .pat .n{font-weight:600;font-size:12.5px}
+  .pat .d{color:var(--muted);font-size:10.5px;margin-top:3px;line-height:1.35}
+  .testparams{display:flex;gap:26px;flex-wrap:wrap;align-items:center;padding:12px 0}
+  .testparams label{display:flex;align-items:center;gap:9px;color:var(--muted);font-size:13px}
+  .testparams .val{min-width:42px;color:var(--text);font-variant-numeric:tabular-nums}
+  #testLabel{font-size:15px;font-weight:650;color:var(--acc2);min-height:22px}
+  .linegrid{display:flex;flex-direction:column;gap:10px}
+  .linerow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .linerow .pname{min-width:170px;font-weight:550;font-size:12.5px}
+  .linerow .pname small{color:var(--muted);font-weight:400;display:block}
+  .lbtn{background:var(--panel2);border:1px solid var(--border);color:var(--text);
+    min-width:40px;padding:7px 10px;border-radius:8px;cursor:pointer;font-family:inherit;
+    font-size:12.5px;font-weight:600;transition:.13s}
+  .lbtn:hover{border-color:var(--acc2);transform:translateY(-1px)}
+  .lbtn.sel{background:linear-gradient(135deg,rgba(34,211,238,.3),rgba(99,102,241,.2));
+    border-color:var(--acc2);box-shadow:0 0 10px rgba(34,211,238,.3)}
+  .lbtn.all{color:var(--acc2)}
+
+  /* sequences */
+  .recbtn{width:64px;height:64px;border-radius:50%;border:2px solid rgba(248,113,113,.6);
+    background:rgba(248,113,113,.12);cursor:pointer;position:relative;flex:none;transition:.2s}
+  .recbtn:after{content:"";position:absolute;inset:18px;border-radius:50%;background:var(--err);transition:.25s}
+  .recbtn.rec:after{border-radius:5px;animation:blink 1.2s infinite}
+  @keyframes blink{50%{opacity:.45}}
+  .reclist .item{display:flex;align-items:center;gap:10px;padding:11px 4px;
+    border-bottom:1px solid rgba(42,51,69,.5);flex-wrap:wrap}
+  .reclist .item:last-child{border-bottom:none}
+  .reclist .n{font-weight:600;min-width:160px}
+  .reclist .meta{color:var(--muted);font-size:12px;min-width:130px}
+  .reclist .sp{flex:1}
+  .sbtn{border:1px solid var(--border);background:var(--panel2);color:var(--text);
+    border-radius:8px;padding:7px 13px;font-family:inherit;font-size:12.5px;font-weight:600;cursor:pointer}
+  .sbtn:hover{border-color:var(--acc)}
+  .sbtn.play{color:var(--ok)} .sbtn.stop{color:var(--err)} .sbtn.del{color:var(--muted)}
+
+  /* adressage */
+  .calcgrid{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-end}
+  .calcgrid label{display:flex;flex-direction:column;gap:5px;font-size:12.5px;color:var(--muted);font-weight:550}
+  .calcgrid input,.calcgrid select{width:130px}
+  #manualStarts .mrow{display:flex;gap:10px;align-items:center;margin:6px 0}
+  #manualStarts .mrow span{min-width:70px;font-size:12.5px;color:var(--muted)}
+  #manualStarts input{width:90px}
+  #calcOut table{margin-top:6px}
+  .usum{margin-top:10px}
+
+  /* logs */
+  .toolbar{display:flex;align-items:center;gap:9px;margin-bottom:10px;flex-wrap:wrap}
+  .fchip{display:flex;align-items:center;gap:6px;background:var(--panel2);
+    border:1px solid var(--border);border-radius:16px;padding:5px 13px;cursor:pointer;
+    font-size:12px;color:var(--muted);user-select:none;transition:.15s;font-weight:550}
+  .fchip.on{color:var(--text);border-color:var(--acc)}
+  .fchip .cdot{width:8px;height:8px;border-radius:50%}
+  #logView{background:rgba(5,8,12,.85);border:1px solid var(--border);border-radius:var(--r);
+    height:480px;overflow-y:auto;padding:12px 14px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-word}
+  .lg-INFO{color:#aebacc}.lg-WARN{color:var(--warn)}.lg-ERROR{color:var(--err)}
+  .lg-ts{color:#4d5b73}
+
+  /* toasts / modal / overlay */
+  #toasts{position:fixed;right:20px;bottom:20px;z-index:200;display:flex;
+    flex-direction:column;gap:9px}
+  .toast{background:var(--panel-solid);border:1px solid var(--border);border-left:3px solid var(--ok);
+    border-radius:10px;padding:11px 16px;font-size:13px;box-shadow:var(--shadow);
+    animation:slideIn .25s ease;max-width:340px}
+  .toast.err{border-left-color:var(--err)} .toast.warn{border-left-color:var(--warn)}
+  @keyframes slideIn{from{opacity:0;transform:translateX(30px)}to{opacity:1;transform:none}}
+  #modalBg{position:fixed;inset:0;background:rgba(5,8,12,.7);backdrop-filter:blur(4px);
+    z-index:300;display:none;align-items:center;justify-content:center}
+  #modalBg.show{display:flex}
+  #modal{background:var(--panel-solid);border:1px solid var(--border);border-radius:16px;
+    padding:24px;width:min(420px,90vw);box-shadow:var(--shadow);animation:fadeIn .2s ease}
+  #modal h3{margin:0 0 8px;font-size:15px}
+  #modal p{color:var(--muted);font-size:13px;margin:0 0 18px}
+  #modal .acts{display:flex;gap:10px;justify-content:flex-end}
+  #overlay{position:fixed;inset:0;background:rgba(5,8,12,.85);backdrop-filter:blur(6px);
+    z-index:400;display:none;align-items:center;justify-content:center;flex-direction:column;gap:16px}
+  #overlay.show{display:flex}
+  .spinner{width:38px;height:38px;border:3px solid var(--border);border-top-color:var(--acc);
+    border-radius:50%;animation:spin 1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  #overlayMsg{font-size:15px;font-weight:600}
+  details{margin-top:14px}
+  summary{cursor:pointer;color:var(--muted);font-size:13px;font-weight:550}
+  summary:hover{color:var(--text)}
+  details .card{margin-top:10px}
+  details li{margin:6px 0;color:var(--muted);font-size:13px}
+  details li b{color:var(--text)}
+  code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:12px}
+  @media(max-width:760px){
+    .row{grid-template-columns:1fr;gap:6px}
+    header{flex-wrap:wrap;padding:10px 14px}
+    .hbtn span{display:none}
+    nav{overflow-x:auto;flex-wrap:nowrap;padding:10px 14px 0;scrollbar-width:none}
+    nav button{white-space:nowrap;padding:8px 13px}
+    main{padding:14px 14px 50px}
+    h2{flex-wrap:wrap}
+    .tiles{grid-template-columns:repeat(2,1fr)}
+    .patterns{grid-template-columns:repeat(2,1fr)}
+    .calcgrid label{width:100%}
+    .calcgrid input,.calcgrid select{width:100%}
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo"></div>
+  <div>
+    <h1>PixelPusher Bridge</h1>
+    <div class="sub">Pont Art-Net / sACN &rarr; PixelPusher &middot; <span id="version">&ndash;</span> &middot; uptime <span id="hUptime">&ndash;</span></div>
+  </div>
+  <div class="hspacer"></div>
+  <button class="hbtn" onclick="quickBlackout()" title="Éteint immédiatement toutes les LED">&#9899; <span>Blackout</span></button>
+  <button class="hbtn warn" onclick="confirmRestart()" title="Redémarre l'application (coupure ~3 s)">&#8635; <span>Red&eacute;marrer</span></button>
+  <button class="hbtn danger" onclick="confirmStop()" title="Arrête complètement le bridge">&#9209; <span>Arr&ecirc;ter</span></button>
+  <div id="connBadge"><span class="pulse"></span>Connect&eacute;</div>
+</header>
+
+<nav>
+  <button data-tab="dash" class="active">Tableau de bord</button>
+  <button data-tab="guide">&#128218; Guide</button>
+  <button data-tab="test">Tests</button>
+  <button data-tab="seq">S&eacute;quences</button>
+  <button data-tab="calc">Adressage DMX</button>
+  <button data-tab="config">Configuration</button>
+  <button data-tab="logs">Logs</button>
+</nav>
+
+<main>
+  <div id="testBanner" class="banner test">&#9888;&nbsp; <b>Mode test actif</b> &mdash; les donn&eacute;es Art-Net/sACN entrantes sont ignor&eacute;es. <span id="bannerLabel"></span></div>
+  <div id="playBanner" class="banner play">&#9654;&nbsp; <b>Lecture de s&eacute;quence</b> &mdash; <span id="playBannerLabel"></span> &mdash; le flux Art-Net entrant est ignor&eacute;.</div>
+  <div id="recBanner" class="banner rec">&#9210;&nbsp; <b>Enregistrement en cours</b> &mdash; <span id="recBannerLabel"></span></div>
+  <div id="wdBanner" class="banner wd">&#128737; <b>Watchdog d&eacute;clench&eacute;</b> &mdash; aucune donn&eacute;e DMX re&ccedil;ue, blackout de s&eacute;curit&eacute; envoy&eacute;. Il se r&eacute;armera d&egrave;s le retour du signal.</div>
+
+  <!-- ================= TABLEAU DE BORD ================= -->
+  <section id="tab-dash" class="tab active">
+    <div class="grid tiles">
+      <div class="card tile"><div class="lbl">Art-Net re&ccedil;u</div>
+        <div class="big" id="tArtnet">0 <span class="unit">pqt/s</span></div>
+        <canvas id="spArtnet" width="220" height="34"></canvas></div>
+      <div class="card tile"><div class="lbl">sACN re&ccedil;u</div>
+        <div class="big" id="tSacn">0 <span class="unit">pqt/s</span></div></div>
+      <div class="card tile"><div class="lbl">&rarr; Pushers</div>
+        <div class="big" id="tPush">0 <span class="unit">pqt/s</span></div>
+        <canvas id="spPush" width="220" height="34"></canvas></div>
+      <div class="card tile"><div class="lbl">PixelPushers</div>
+        <div class="big" id="tPushers">0</div></div>
+      <div class="card tile"><div class="lbl">Bande passante</div>
+        <div class="big" id="tBw">0</div></div>
+      <div class="card tile" id="tErrCard" style="cursor:pointer" title="Voir les logs"><div class="lbl">Erreurs</div>
+        <div class="big" id="tErrors">0</div></div>
+    </div>
+
+    <div class="card" style="margin-top:14px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+      <span style="font-size:17px">&#128241;</span>
+      <div style="flex:1;min-width:220px">
+        <b>Acc&egrave;s depuis ton t&eacute;l&eacute;phone</b>
+        <div class="hint" style="margin-top:3px">Interface simplifi&eacute;e (blackout, luminosit&eacute;, tests, presets, s&eacute;quences)
+          &mdash; m&ecirc;me r&eacute;seau WiFi requis. Le plus simple : le QR code, &agrave; scanner avec l&rsquo;appareil photo.</div>
+      </div>
+      <span id="lanUrl" class="chip" style="font-size:13px;cursor:pointer" title="Cliquer pour copier">&hellip;</span>
+      <button class="btn sec" type="button" onclick="showQr()">&#9635; Afficher le QR code</button>
+    </div>
+
+    <h2><span class="ic">&#10003;</span> Est-ce que tout marche ?</h2>
+    <div class="card health" id="healthList"></div>
+
+    <h2><span class="ic">&#129658;</span> Diagnostic complet
+      <span class="hint">passe tout en revue et donne un conseil pour chaque probl&egrave;me</span>
+      <span class="hspacer"></span>
+      <button class="btn sec" onclick="runDiag()">&#128269; Lancer le diagnostic</button>
+      <a class="btn sec" href="/api/diagnostic/download" style="text-decoration:none" title="Rapport texte complet à envoyer si tu demandes de l'aide">&#128196; Rapport</a>
+    </h2>
+    <div class="card" id="diagResult" style="display:none"></div>
+
+    <h2><span class="ic">&#127760;</span> Univers actifs <span class="hint">(donn&eacute;es re&ccedil;ues dans les 30 derni&egrave;res secondes)</span></h2>
+    <div class="card" id="universes"><span class="hint">Aucune donn&eacute;e DMX re&ccedil;ue pour l&rsquo;instant &mdash; lance ta source Art-Net (MadMapper, grandMA&hellip;).</span></div>
+
+    <details>
+      <summary>&#128200; Moniteur DMX en direct (avanc&eacute;) &mdash; voir les valeurs brutes re&ccedil;ues canal par canal</summary>
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px">
+          <label class="hint">Univers <input type="number" id="dmxU" min="1" max="32768" value="1" style="width:80px"></label>
+          <span class="hint" id="dmxInfo">&mdash;</span>
+          <span class="hint">Chaque barre = un canal DMX (1 &agrave; 512). Utile pour v&eacute;rifier que ta source envoie bien quelque chose, et sur quels canaux.</span>
+        </div>
+        <canvas id="dmxCanvas" width="1024" height="120" style="width:100%;height:120px;background:rgba(5,8,12,.8);border-radius:8px"></canvas>
+      </div>
+    </details>
+
+    <h2><span class="ic">&#128225;</span> PixelPushers d&eacute;tect&eacute;s</h2>
+    <div class="card" style="padding:6px 10px;overflow-x:auto">
+      <table id="pusherTable">
+        <thead><tr>
+          <th>&Eacute;tat</th><th>#</th><th>IP</th><th>MAC</th><th>Lignes &times; pixels</th>
+          <th>Univers de d&eacute;part</th><th>Univers utilis&eacute;s &asymp;</th><th>FPS</th><th>Vu il y a</th><th>Mapp&eacute;</th>
+        </tr></thead>
+        <tbody><tr><td colspan="10" class="hint">Recherche de PixelPushers sur le r&eacute;seau&hellip; (annonce automatique sur le port 7331)</td></tr></tbody>
+      </table>
+    </div>
+
+    <details>
+      <summary>&#128295; D&eacute;pannage : rien ne s&rsquo;allume ?</summary>
+      <div class="card"><ul>
+        <li><b>Aucun PixelPusher d&eacute;tect&eacute;</b> &rarr; v&eacute;rifie qu&rsquo;il est aliment&eacute;, sur le m&ecirc;me r&eacute;seau/VLAN, et que le pare-feu autorise l&rsquo;UDP entrant (port 7331).</li>
+        <li><b>Pusher d&eacute;tect&eacute; mais &laquo; non mapp&eacute; &raquo;</b> &rarr; dans son fichier <code>pixel.rc</code>, <code>artnet_universe</code> et <code>artnet_channel</code> doivent &ecirc;tre &ge; 1 (0 = pas de mapping).</li>
+        <li><b>Pas de donn&eacute;es DMX</b> &rarr; ta source doit envoyer vers l&rsquo;IP de cette machine (ou en broadcast) sur le port 6454. Univers Art-Net 0 de la source = univers 1 ici.</li>
+        <li><b>Mauvaises couleurs</b> &rarr; onglet Tests &rarr; &laquo; Cycle RVB &raquo; : si ROUGE ne s&rsquo;affiche pas rouge, change l&rsquo;ordre des couleurs dans Configuration.</li>
+        <li><b>Saccades</b> &rarr; v&eacute;rifie le FPS du pusher ci-dessus, r&eacute;duis la charge r&eacute;seau (c&acirc;ble plut&ocirc;t que WiFi), ou ajoute 1&ndash;2 ms de d&eacute;lai additionnel.</li>
+      </ul></div>
+    </details>
+  </section>
+
+  <!-- ================= GUIDE ================= -->
+  <section id="tab-guide" class="tab">
+    <div class="card" style="margin-bottom:14px">
+      <b style="font-size:15px">&#128075; Bienvenue ! Ce guide t&rsquo;accompagne de z&eacute;ro jusqu&rsquo;aux LED allum&eacute;es.</b>
+      <div class="hint" style="margin-top:4px">PixelPusher Bridge re&ccedil;oit le signal lumi&egrave;re (Art-Net ou sACN) envoy&eacute; par ton logiciel
+        (MadMapper, grandMA, Resolume, console&hellip;) et le transmet aux contr&ocirc;leurs PixelPusher qui pilotent les rubans LED.
+        Il doit rester lanc&eacute; tant que les LED doivent r&eacute;pondre.</div>
+    </div>
+
+    <h2>1&#65039;&#8283; Brancher le PixelPusher</h2>
+    <div class="card sect">
+      <ul style="margin:0;padding-left:20px;line-height:2">
+        <li>Branche les rubans LED sur les sorties du PixelPusher (chaque sortie = une &laquo; ligne &raquo;).</li>
+        <li>Relie le PixelPusher au <b>m&ecirc;me r&eacute;seau</b> que cet ordinateur (c&acirc;ble Ethernet conseill&eacute;, le WiFi peut saccader).</li>
+        <li>Sur la carte SD du pusher, le fichier <code>pixel.rc</code> d&eacute;crit tes rubans. Les lignes importantes :
+          <code>strips</code> (nombre de lignes), <code>pixels</code> (LED par ligne), et surtout
+          <code>artnet_universe=1</code> et <code>artnet_channel=1</code> &mdash; <b>s&rsquo;ils sont &agrave; 0, rien ne s&rsquo;allumera</b>.</li>
+        <li>Alimente le pusher : il appara&icirc;t tout seul sur le <b>Tableau de bord</b> en moins de 10 secondes.</li>
+      </ul>
+    </div>
+
+    <h2>2&#65039;&#8283; V&eacute;rifier que le bridge le voit</h2>
+    <div class="card sect">
+      <div class="hint" style="line-height:1.9">Ouvre le <a href="#" onclick="goTab('dash');return false" style="color:var(--acc2)">Tableau de bord</a> :
+      la section &laquo; Est-ce que tout marche ? &raquo; doit montrer <b>PixelPusher(s) d&eacute;tect&eacute;(s)</b> en vert,
+      et le tableau du bas doit afficher ton pusher <b>en ligne</b> et <b>mapp&eacute; ✅</b>.
+      Si ce n&rsquo;est pas le cas, clique <b>&#128269; Lancer le diagnostic</b> : chaque probl&egrave;me d&eacute;tect&eacute; vient avec un conseil concret.</div>
+    </div>
+
+    <h2>3&#65039;&#8283; Tester les LED sans logiciel</h2>
+    <div class="card sect">
+      <div class="hint" style="line-height:1.9">Onglet <a href="#" onclick="goTab('test');return false" style="color:var(--acc2)">Tests</a> :
+      active le mode test et essaie <b>Blanc 100 %</b> (tout doit s&rsquo;allumer), puis <b>Cycle RVB</b> &mdash; quand l&rsquo;&eacute;cran dit ROUGE,
+      les LED doivent &ecirc;tre rouges. Si elles sont vertes ou bleues, va dans Configuration &rarr; <b>Ordre des couleurs</b> et change-le
+      jusqu&rsquo;&agrave; ce que &ccedil;a corresponde (&ccedil;a s&rsquo;applique instantan&eacute;ment).
+      Le <b>test de lignes</b> permet ensuite de v&eacute;rifier que chaque sortie est branch&eacute;e au bon endroit,
+      et <b>D&eacute;grad&eacute;</b> montre dans quel sens court chaque ruban.</div>
+    </div>
+
+    <h2>4&#65039;&#8283; Configurer ton logiciel lumi&egrave;re</h2>
+    <div class="card sect">
+      <ul style="margin:0;padding-left:20px;line-height:2">
+        <li>Protocole : <b>Art-Net</b> (ou sACN), destination : <b>l&rsquo;adresse IP de cet ordinateur</b> (ou broadcast), port 6454 (standard).</li>
+        <li>&#9888; D&eacute;calage classique : l&rsquo;<b>univers 0</b> c&ocirc;t&eacute; logiciel correspond &agrave; l&rsquo;<b>univers 1</b> ici.</li>
+        <li>L&rsquo;onglet <a href="#" onclick="goTab('calc');return false" style="color:var(--acc2)">Adressage DMX</a> te calcule
+          la map compl&egrave;te (quel univers/canal pour chaque barre) &agrave; reporter dans ton logiciel.</li>
+        <li>D&egrave;s que ta source &eacute;met, le Tableau de bord montre les paquets re&ccedil;us et les univers actifs.
+          Le <b>Moniteur DMX</b> (Tableau de bord, section avanc&eacute;e) affiche m&ecirc;me les valeurs canal par canal.</li>
+      </ul>
+    </div>
+
+    <h2>5&#65039;&#8283; En spectacle / installation</h2>
+    <div class="card sect">
+      <ul style="margin:0;padding-left:20px;line-height:2">
+        <li><b>Watchdog de signal</b> (Configuration &rarr; S&eacute;curit&eacute; spectacle) : si ta source plante, les LED s&rsquo;&eacute;teignent au lieu de rester fig&eacute;es. Conseill&eacute; : 5&ndash;30 s.</li>
+        <li><b>Presets</b> : sauvegarde une config par salle/spectacle et recharge-la en un clic.</li>
+        <li><b>S&eacute;quences</b> : enregistre ce que ta console envoie, puis rejoue-le en boucle &mdash; l&rsquo;installation tourne sans console ni logiciel.</li>
+        <li><b>T&eacute;l&eacute;phone</b> : scanne le QR code du Tableau de bord avec l&rsquo;appareil photo &mdash; blackout, luminosit&eacute; et tests dans la poche, sans rien taper.</li>
+        <li>Le bouton <b>&#9899; Blackout</b> (en haut) &eacute;teint tout imm&eacute;diatement, &agrave; tout moment.</li>
+      </ul>
+    </div>
+
+    <h2>&#10067; Probl&egrave;mes courants</h2>
+    <div class="card sect">
+      <table>
+        <thead><tr><th>Sympt&ocirc;me</th><th>Cause probable &amp; solution</th></tr></thead>
+        <tbody>
+          <tr><td>Pusher non d&eacute;tect&eacute;</td><td>Pas aliment&eacute;, autre r&eacute;seau/VLAN, ou pare-feu qui bloque Java (UDP 7331). Autorise Java dans le pare-feu.</td></tr>
+          <tr><td>D&eacute;tect&eacute; mais &laquo; non mapp&eacute; &raquo;</td><td><code>artnet_universe</code> / <code>artnet_channel</code> &agrave; 0 dans <code>pixel.rc</code> &rarr; mets 1 (ou plus) et red&eacute;marre le pusher.</td></tr>
+          <tr><td>Donn&eacute;es re&ccedil;ues mais rien ne s&rsquo;allume</td><td>Mauvais univers c&ocirc;t&eacute; source (d&eacute;calage 0/1), ou univers re&ccedil;us &ne; univers mapp&eacute;s &rarr; lance le diagnostic, il le d&eacute;tecte.</td></tr>
+          <tr><td>Mauvaises couleurs</td><td>Ordre des couleurs &rarr; test Cycle RVB + Configuration.</td></tr>
+          <tr><td>Saccades</td><td>WiFi ou r&eacute;seau charg&eacute; &rarr; c&acirc;ble Ethernet ; sinon +1&ndash;2 ms de d&eacute;lai additionnel, ou active l&rsquo;auto-throttle.</td></tr>
+          <tr><td>Image fig&eacute;e apr&egrave;s fermeture</td><td>Normal : les LED gardent la derni&egrave;re trame. Active &laquo; Blackout &agrave; l&rsquo;arr&ecirc;t &raquo; ou utilise le bouton Blackout.</td></tr>
+        </tbody>
+      </table>
+      <div class="hint" style="margin-top:10px">Toujours bloqu&eacute; ? Tableau de bord &rarr; <b>&#128196; Rapport</b> : t&eacute;l&eacute;charge le rapport de diagnostic complet, il contient tout ce qu&rsquo;il faut pour se faire aider.</div>
+    </div>
+  </section>
+
+  <!-- ================= TESTS ================= -->
+  <section id="tab-test" class="tab">
+    <div class="card">
+      <div class="mastertest">
+        <label class="switch"><input type="checkbox" id="testEnabled"><span class="sl"></span></label>
+        <div>
+          <b>Activer le mode test</b>
+          <div class="hint">Coupe temporairement l&rsquo;Art-Net entrant et pilote les LED avec le sc&eacute;nario choisi. Tout revient &agrave; la normale d&egrave;s la d&eacute;sactivation.</div>
+        </div>
+        <div class="hspacer"></div>
+        <div id="testLabel"></div>
+      </div>
+    </div>
+
+    <h2><span class="ic">&#127916;</span> Sc&eacute;narios</h2>
+    <div class="patterns" id="patternGrid">
+      <div class="pat sel" data-p="solid"><div class="ico">&#9632;</div><div class="n">Couleur unie</div><div class="d">Toutes les LED dans la couleur choisie</div></div>
+      <div class="pat" data-p="white"><div class="ico">&#9728;</div><div class="n">Blanc 100 %</div><div class="d">Test de puissance max &amp; alimentation</div></div>
+      <div class="pat" data-p="rgbcycle"><div class="ico">&#127752;</div><div class="n">Cycle RVB</div><div class="d">Rouge &rarr; vert &rarr; bleu &rarr; blanc : v&eacute;rifie l&rsquo;ordre des couleurs</div></div>
+      <div class="pat" data-p="gradient"><div class="ico">&#9698;</div><div class="n">D&eacute;grad&eacute;</div><div class="d">Sombre &rarr; vif le long de la ligne : v&eacute;rifie le sens</div></div>
+      <div class="pat" data-p="rainbow"><div class="ico">&#10024;</div><div class="n">Arc-en-ciel</div><div class="d">Animation fluide : test visuel de fluidit&eacute;</div></div>
+      <div class="pat" data-p="chase"><div class="ico">&#10148;</div><div class="n">Chenillard</div><div class="d">Point lumineux : rep&egrave;re les pixels morts</div></div>
+      <div class="pat" data-p="strips"><div class="ico">&#9776;</div><div class="n">1 couleur / ligne</div><div class="d">L1 rouge, L2 vert, L3 bleu&hellip; : v&eacute;rifie le c&acirc;blage</div></div>
+      <div class="pat" data-p="lineseq"><div class="ico">&#8645;</div><div class="n">S&eacute;quence lignes</div><div class="d">Allume les lignes une par une automatiquement</div></div>
+      <div class="pat" data-p="pusherseq"><div class="ico">&#128260;</div><div class="n">S&eacute;quence pushers</div><div class="d">Allume les pushers un par un (toutes leurs lignes)</div></div>
+      <div class="pat" data-p="blackout"><div class="ico">&#9899;</div><div class="n">Noir total</div><div class="d">Tout &eacute;teint</div></div>
+    </div>
+
+    <div class="card">
+      <div class="testparams">
+        <label>Couleur <input type="color" id="testColor" value="#ff0000"></label>
+        <label>Luminosit&eacute; <input type="range" id="testBrightness" min="1" max="100" value="100">
+          <span class="val" id="testBrightnessVal">100&nbsp;%</span></label>
+        <label>Vitesse <input type="range" id="testSpeed" min="1" max="50" value="10">
+          <span class="val" id="testSpeedVal">1.0&times;</span></label>
+      </div>
+      <div class="hint">La couleur s&rsquo;applique aux sc&eacute;narios unis, d&eacute;grad&eacute;, chenillard et tests de lignes. La vitesse s&rsquo;applique aux animations et s&eacute;quences.</div>
+    </div>
+
+    <h2><span class="ic">&#128161;</span> Test de lignes <span class="hint">(clic = allume uniquement cette ligne, le reste en noir)</span></h2>
+    <div class="card">
+      <div class="linegrid" id="lineGrid"><span class="hint">En attente de PixelPushers d&eacute;tect&eacute;s&hellip;</span></div>
+    </div>
+  </section>
+
+  <!-- ================= SEQUENCES ================= -->
+  <section id="tab-seq" class="tab">
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap">
+        <button id="recBtn" class="recbtn" title="Démarrer / arrêter l'enregistrement"></button>
+        <div style="flex:1;min-width:240px">
+          <b>Enregistrer une s&eacute;quence</b>
+          <div class="hint">Capture tout ce que ta console/logiciel envoie (tous les univers, timing exact).
+            Lance ta source Art-Net, d&eacute;marre l&rsquo;enregistrement, joue ta s&eacute;quence, puis arr&ecirc;te.</div>
+          <div id="recState" style="margin-top:6px;font-weight:650;color:var(--err)"></div>
+        </div>
+        <label style="display:flex;flex-direction:column;gap:5px;font-size:12.5px;color:var(--muted)">
+          Nom de la s&eacute;quence
+          <input type="text" id="recName" placeholder="ex : Intro spectacle" maxlength="40">
+        </label>
+      </div>
+    </div>
+
+    <h2><span class="ic">&#127909;</span> S&eacute;quences enregistr&eacute;es</h2>
+    <div class="card reclist" id="recList"><span class="hint">Aucune s&eacute;quence pour l&rsquo;instant.</span></div>
+    <p class="hint">La lecture rejoue la s&eacute;quence avec son timing d&rsquo;origine et coupe le flux Art-Net entrant
+      (r&eacute;tabli automatiquement &agrave; la fin). En boucle, id&eacute;al pour une installation autonome sans console.
+      Fichiers : <code>~/.pixelpusherbridge/recordings/</code>.</p>
+  </section>
+
+  <!-- ================= ADRESSAGE DMX ================= -->
+  <section id="tab-calc" class="tab">
+    <div class="card">
+      <b>Calculateur d&rsquo;adressage DMX</b>
+      <div class="hint" style="margin-top:4px">Reproduit exactement la logique de mapping du bridge :
+        les canaux d&rsquo;une LED ne sont jamais &agrave; cheval sur deux univers, passage &agrave; l&rsquo;univers suivant
+        quand il ne reste plus assez de canaux (170 LED RGB max par univers de 512 canaux).</div>
+      <div class="calcgrid" style="margin-top:16px">
+        <label>Type de LED
+          <select id="cType">
+            <option value="3">RGB &mdash; 3 canaux</option>
+            <option value="5">RGBOW &mdash; 5 canaux</option>
+            <option value="4">RGBW &mdash; 4 canaux (g&eacute;n&eacute;rique)</option>
+            <option value="1">Mono &mdash; 1 canal (g&eacute;n&eacute;rique)</option>
+          </select>
+        </label>
+        <label>LED par barre <input type="number" id="cLedsBar" min="1" max="1000" value="96"></label>
+        <label>Barres par ligne (sortie) <input type="number" id="cBarsLine" min="1" max="16" value="2"></label>
+        <label>Nombre de lignes <input type="number" id="cLines" min="1" max="48" value="8"></label>
+        <label>Mode d&rsquo;adressage
+          <select id="cMode">
+            <option value="pack">Auto &mdash; packing (comme le bridge)</option>
+            <option value="perline">Auto &mdash; univers frais par ligne</option>
+            <option value="manual">Manuel &mdash; d&eacute;but par ligne</option>
+          </select>
+        </label>
+        <label id="cStartWrap">D&eacute;but (univers / adresse)
+          <span style="display:flex;gap:6px">
+            <input type="number" id="cStartU" min="1" max="32768" value="1" style="width:70px">
+            <input type="number" id="cStartC" min="1" max="512" value="1" style="width:70px">
+          </span>
+        </label>
+        <button class="btn" onclick="calcRun()">Calculer</button>
+      </div>
+      <div id="manualStarts" style="display:none;margin-top:12px">
+        <div class="hint" style="margin-bottom:4px">Adresse de d&eacute;but de chaque ligne :</div>
+      </div>
+    </div>
+
+    <div id="calcOut" style="display:none">
+      <h2><span class="ic">&#128506;</span> Map d&rsquo;adressage
+        <span class="hspacer"></span>
+        <button class="btn sec" onclick="calcCopy()">Copier (CSV)</button>
+      </h2>
+      <div class="card" style="padding:6px 10px;overflow-x:auto">
+        <table id="calcTable">
+          <thead><tr><th>Ligne</th><th>Barre</th><th>LED</th><th>D&eacute;but</th><th>Fin</th><th>Canaux</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="card usum" id="calcSummary"></div>
+    </div>
+  </section>
+
+  <!-- ================= CONFIGURATION ================= -->
+  <section id="tab-config" class="tab">
+    <form id="cfgForm" onsubmit="return false">
+
+    <h2><span class="ic">&#11088;</span> Presets</h2>
+    <div class="card sect" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <select id="presetSel" style="width:190px"><option value="">&mdash; presets &mdash;</option></select>
+      <button class="btn sec" type="button" id="presetLoadBtn">Charger</button>
+      <button class="btn danger" type="button" id="presetDelBtn">Supprimer</button>
+      <span style="width:1px;height:26px;background:var(--border)"></span>
+      <input type="text" id="presetName" placeholder="Nom du nouveau preset" maxlength="40">
+      <button class="btn okb" type="button" id="presetSaveBtn">&#128190; Enregistrer la config actuelle</button>
+      <div class="hint" style="flex-basis:100%">Un preset photographie TOUTE la configuration ci-dessous. Charger un preset l&rsquo;applique imm&eacute;diatement (remappage &agrave; chaud inclus).</div>
+    </div>
+
+    <h2><span class="ic">&#127912;</span> Mapping Art-Net</h2>
+    <div class="card sect">
+      <div class="row">
+        <div class="name">Ordre des couleurs<small>Ordre des composantes dans les canaux DMX</small></div>
+        <div class="adv">
+          <select id="c_colourOrder"><option>RGB</option><option>RBG</option><option>GRB</option><option>GBR</option><option>BRG</option><option>BGR</option></select>
+          <span class="badge">S&rsquo;applique &agrave; chaud</span>
+        </div>
+        <div class="hint">Si le test &laquo; Cycle RVB &raquo; n&rsquo;affiche pas les bonnes couleurs, change l&rsquo;ordre ici jusqu&rsquo;&agrave; ce que ROUGE s&rsquo;affiche rouge. Le remappage est instantan&eacute;, sans coupure.</div>
+      </div>
+      <div class="row">
+        <div class="name">Packing des univers<small>Remplissage maximal des univers DMX</small></div>
+        <div class="adv">
+          <label class="switch"><input type="checkbox" id="c_packing"><span class="sl"></span></label>
+          <span class="badge">Conseill&eacute; : activ&eacute;</span>
+        </div>
+        <div class="hint">Activ&eacute; : chaque univers est rempli au maximum (170 pixels RGB par univers de 512 canaux). D&eacute;sactiv&eacute; : chaque ligne d&eacute;marre sur un nouvel univers &mdash; mapping plus lisible mais plus d&rsquo;univers utilis&eacute;s. L&rsquo;onglet &laquo; Adressage DMX &raquo; calcule la map exacte.</div>
+      </div>
+      <div class="row">
+        <div class="name">R&eacute;ception sACN (E1.31)<small>En plus de l&rsquo;Art-Net</small></div>
+        <div class="adv">
+          <label class="switch"><input type="checkbox" id="c_sacnEnabled"><span class="sl"></span></label>
+          <span class="badge">Red&eacute;marrage requis si activation</span>
+        </div>
+        <div class="hint">Re&ccedil;oit aussi le sACN multicast (port 5568), protocole utilis&eacute; par beaucoup de consoles. Laisse activ&eacute; si tu ne sais pas.</div>
+      </div>
+    </div>
+
+    <h2><span class="ic">&#9889;</span> Fluidit&eacute; &amp; performance</h2>
+    <div class="card sect">
+      <div class="row">
+        <div class="name">Limite de trames<small>Fr&eacute;quence max d&rsquo;envoi vers les pushers</small></div>
+        <div class="adv">
+          <input type="number" id="c_frameLimit" min="1" max="1000">
+          <span class="badge">Conseill&eacute; : 60&ndash;85 Hz</span>
+        </div>
+        <div class="hint">85 Hz par d&eacute;faut. Les sources Art-Net envoient g&eacute;n&eacute;ralement 40&ndash;44 Hz : la limite ne doit juste pas &ecirc;tre plus basse que ta source. Au-del&agrave; de la capacit&eacute; r&eacute;elle du pusher, les trames en trop sont simplement ignor&eacute;es.</div>
+      </div>
+      <div class="row">
+        <div class="name">D&eacute;lai additionnel<small>Pause entre les paquets envoy&eacute;s</small></div>
+        <div class="adv">
+          <input type="number" id="c_extraDelayMs" min="0" max="1000">
+          <span class="badge">Conseill&eacute; : 0 ms</span>
+        </div>
+        <div class="hint">0 = fluidit&eacute; et latence maximales. Monte &agrave; 1&ndash;5 ms uniquement si le r&eacute;seau sature (WiFi, switch charg&eacute;, pertes de paquets). Au-del&agrave; de 10 ms le framerate chute visiblement.</div>
+      </div>
+      <div class="row">
+        <div class="name">Auto-throttle<small>Ralentissement automatique</small></div>
+        <div class="adv">
+          <label class="switch"><input type="checkbox" id="c_autoThrottle"><span class="sl"></span></label>
+          <span class="badge">Conseill&eacute; : d&eacute;sactiv&eacute;</span>
+        </div>
+        <div class="hint">Ralentit l&rsquo;envoi si un pusher signale qu&rsquo;il est d&eacute;bord&eacute;. Laisse d&eacute;sactiv&eacute; pour une latence minimale ; active-le seulement si tu constates des d&eacute;crochages avec beaucoup de pixels.</div>
+      </div>
+      <div class="row">
+        <div class="name">Luminosit&eacute; globale<small>&Eacute;chelle appliqu&eacute;e &agrave; toutes les LED</small></div>
+        <div class="adv">
+          <span><input type="range" id="c_brightness" min="1" max="100" value="100"> <span class="val" id="c_brightnessVal">100&nbsp;%</span></span>
+          <span class="badge">Conseill&eacute; : 100 %</span>
+        </div>
+        <div class="hint">R&eacute;duis pour limiter la consommation &eacute;lectrique et l&rsquo;&eacute;chauffement des strips (utile en fixe ou si l&rsquo;alim est juste).</div>
+      </div>
+      <div class="row">
+        <div class="name">Courbe anti-log<small>Correction gamma</small></div>
+        <div class="adv">
+          <label class="switch"><input type="checkbox" id="c_antiLog"><span class="sl"></span></label>
+          <span class="badge">Au go&ucirc;t</span>
+        </div>
+        <div class="hint">Rend les fondus et les basses intensit&eacute;s plus naturels &agrave; l&rsquo;&oelig;il. Laisse d&eacute;sactiv&eacute; si ton logiciel applique d&eacute;j&agrave; sa propre courbe de gamma.</div>
+      </div>
+    </div>
+
+    <h2><span class="ic">&#128737;</span> S&eacute;curit&eacute; spectacle</h2>
+    <div class="card sect">
+      <div class="row">
+        <div class="name">Watchdog de signal<small>Blackout auto si la source coupe</small></div>
+        <div class="adv">
+          <span><input type="number" id="c_watchdogSec" min="0" max="300"> s</span>
+          <span class="badge">Conseill&eacute; : 5&ndash;30 s en spectacle, 0 = off</span>
+        </div>
+        <div class="hint">Si aucune donn&eacute;e DMX n&rsquo;arrive pendant ce d&eacute;lai, les LED sont &eacute;teintes automatiquement (au lieu de rester fig&eacute;es sur la derni&egrave;re image). Se r&eacute;arme tout seul au retour du signal. 0 pour d&eacute;sactiver. Inactif pendant les tests et la lecture de s&eacute;quence.</div>
+      </div>
+      <div class="row">
+        <div class="name">Blackout &agrave; l&rsquo;arr&ecirc;t<small>Quand on ferme le bridge</small></div>
+        <div class="adv">
+          <label class="switch"><input type="checkbox" id="c_blackoutOnExit"><span class="sl"></span></label>
+          <span class="badge">Conseill&eacute; : activ&eacute;</span>
+        </div>
+        <div class="hint">&Eacute;teint les LED proprement quand tu arr&ecirc;tes ou red&eacute;marres le bridge depuis l&rsquo;interface. Sinon la derni&egrave;re image reste affich&eacute;e.</div>
+      </div>
+      <div class="row">
+        <div class="name">Expiration des pushers<small>Oubli apr&egrave;s 10 s de silence</small></div>
+        <div class="adv">
+          <label class="switch"><input type="checkbox" id="c_expiryEnabled"><span class="sl"></span></label>
+          <span class="badge">Conseill&eacute; : activ&eacute;</span>
+        </div>
+        <div class="hint">Un pusher qui ne s&rsquo;annonce plus pendant 10 s est retir&eacute; de la liste (et re-d&eacute;tect&eacute; automatiquement &agrave; son retour). D&eacute;sactive uniquement pour d&eacute;bugger un r&eacute;seau tr&egrave;s instable.</div>
+      </div>
+    </div>
+
+    <h2><span class="ic">&#9881;</span> Syst&egrave;me</h2>
+    <div class="card sect">
+      <div class="row">
+        <div class="name">Port de l&rsquo;interface web<small>Cette page</small></div>
+        <div class="adv">
+          <input type="number" id="c_webPort" min="1024" max="65535">
+          <span class="badge">Conseill&eacute; : 7350 &middot; red&eacute;marrage requis</span>
+        </div>
+        <div class="hint">&Eacute;vite 5568 (sACN), 6454 (Art-Net) et 7331 (discovery PixelPusher), d&eacute;j&agrave; utilis&eacute;s. Si le port est occup&eacute;, le bridge essaie automatiquement les 10 suivants.</div>
+      </div>
+      <div class="row">
+        <div class="name">Logs Art-Net d&eacute;taill&eacute;s<small>Debug</small></div>
+        <div class="adv">
+          <label class="switch"><input type="checkbox" id="c_debug"><span class="sl"></span></label>
+          <span class="badge">Conseill&eacute; : d&eacute;sactiv&eacute;</span>
+        </div>
+        <div class="hint">Ajoute un message tous les 100 paquets Art-Net re&ccedil;us. Utile ponctuellement, verbeux &agrave; la longue.</div>
+      </div>
+      <div class="row">
+        <div class="name">Navigateur au d&eacute;marrage<small>Ouvre cette page automatiquement</small></div>
+        <div class="adv">
+          <label class="switch"><input type="checkbox" id="c_openBrowser"><span class="sl"></span></label>
+          <span class="badge">Au go&ucirc;t</span>
+        </div>
+        <div class="hint"></div>
+      </div>
+    </div>
+
+    <div class="card" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <button class="btn" id="saveBtn">Enregistrer</button>
+      <button class="btn sec" id="remapBtn" type="button">Forcer un remappage</button>
+      <div class="hspacer"></div>
+      <button class="btn sec" type="button" onclick="quickBlackout()">&#9899; Blackout</button>
+      <button class="btn warnb" type="button" onclick="confirmRestart()">&#8635; Red&eacute;marrer le bridge</button>
+      <button class="btn danger" type="button" onclick="confirmStop()">&#9209; Arr&ecirc;ter le bridge</button>
+    </div>
+    </form>
+  </section>
+
+  <!-- ================= LOGS ================= -->
+  <section id="tab-logs" class="tab">
+    <div class="toolbar">
+      <div class="fchip on" data-lvl="INFO"><span class="cdot" style="background:#aebacc"></span>Info</div>
+      <div class="fchip on" data-lvl="WARN"><span class="cdot" style="background:var(--warn)"></span>Avertissements</div>
+      <div class="fchip on" data-lvl="ERROR"><span class="cdot" style="background:var(--err)"></span>Erreurs</div>
+      <input type="search" id="logSearch" placeholder="Filtrer&hellip;" style="width:170px">
+      <div class="hspacer"></div>
+      <label class="fchip on" id="autoScrollChip">D&eacute;filement auto</label>
+      <button class="btn sec" onclick="clearLogsLocal()">Vider</button>
+      <a class="btn sec" href="/api/logs/download" style="text-decoration:none">T&eacute;l&eacute;charger</a>
+    </div>
+    <div id="logView"></div>
+    <p class="hint" style="margin-top:8px">Journal complet persistant : <code>~/.pixelpusherbridge/bridge.log</code> (rotation automatique &agrave; 5 Mo).</p>
+  </section>
+</main>
+
+<div style="text-align:center;color:var(--muted2);font-size:11px;padding:6px 0 26px">
+  PixelPusher Bridge &mdash; &copy; 2026 Pierre Yves Mansour &middot; Collectif WSK
+</div>
+
+<div id="toasts"></div>
+<div id="qrModalBg" style="position:fixed;inset:0;background:rgba(5,8,12,.75);backdrop-filter:blur(5px);z-index:310;display:none;align-items:center;justify-content:center" onclick="if(event.target===this)this.style.display='none'">
+  <div style="background:#fff;border-radius:20px;padding:26px;text-align:center;box-shadow:0 12px 50px rgba(0,0,0,.5);animation:fadeIn .2s ease">
+    <img id="qrModalImg" src="/qr.svg" alt="QR code" style="width:min(320px,70vw);height:auto;display:block">
+    <div id="qrModalUrl" style="color:#1a2230;font-weight:650;font-size:14px;margin-top:10px;font-family:ui-monospace,Menlo,Consolas,monospace"></div>
+    <div style="color:#5d6a80;font-size:12px;margin-top:4px">Scanne avec l&rsquo;appareil photo du t&eacute;l&eacute;phone (m&ecirc;me WiFi)</div>
+    <button class="btn sec" style="margin-top:14px" onclick="document.getElementById('qrModalBg').style.display='none'">Fermer</button>
+  </div>
+</div>
+
+<div id="modalBg"><div id="modal">
+  <h3 id="modalTitle"></h3><p id="modalMsg"></p>
+  <div class="acts">
+    <button class="btn sec" onclick="closeModal()">Annuler</button>
+    <button class="btn" id="modalOk">Confirmer</button>
+  </div>
+</div></div>
+<div id="overlay"><div class="spinner"></div><div id="overlayMsg"></div></div>
+
+<script>
+"use strict";
+function $(id){return document.getElementById(id);}
+function post(url, data){
+  return fetch(url,{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},
+    body:new URLSearchParams(data).toString()}).then(function(r){return r.json();});
+}
+function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+
+/* ---------- onglets ---------- */
+function goTab(name){
+  document.querySelectorAll("nav button").forEach(function(x){
+    x.classList.toggle("active",x.dataset.tab===name);
+  });
+  document.querySelectorAll(".tab").forEach(function(x){x.classList.remove("active");});
+  $("tab-"+name).classList.add("active");
+  window.scrollTo(0,0);
+}
+document.querySelectorAll("nav button").forEach(function(b){
+  b.addEventListener("click",function(){goTab(b.dataset.tab);});
+});
+$("tErrCard").addEventListener("click",function(){goTab("logs");});
+
+/* ---------- toasts / modal / overlay ---------- */
+function toast(msg, kind){
+  var d=document.createElement("div");
+  d.className="toast"+(kind?" "+kind:"");
+  d.textContent=msg;
+  $("toasts").appendChild(d);
+  setTimeout(function(){d.style.opacity="0";d.style.transition="opacity .4s";
+    setTimeout(function(){d.remove();},400);},3800);
+}
+var modalAction=null;
+function openModal(title,msg,okLabel,action){
+  $("modalTitle").textContent=title;$("modalMsg").textContent=msg;
+  $("modalOk").textContent=okLabel;modalAction=action;
+  $("modalBg").classList.add("show");
+}
+function closeModal(){$("modalBg").classList.remove("show");modalAction=null;}
+$("modalOk").addEventListener("click",function(){var a=modalAction;closeModal();if(a)a();});
+$("modalBg").addEventListener("click",function(e){if(e.target===this)closeModal();});
+function overlay(msg){$("overlayMsg").textContent=msg;$("overlay").classList.add("show");}
+
+/* ---------- actions bridge ---------- */
+function quickBlackout(){
+  post("/api/action",{action:"blackout"}).then(function(){toast("Blackout envoyé — toutes les LED éteintes.");})
+    .catch(function(){toast("Bridge injoignable","err");});
+}
+function confirmStop(){
+  openModal("Arrêter le bridge ?",
+    "Le flux Art-Net → PixelPusher sera interrompu et cette page ne répondra plus. "+
+    "Pour relancer : rouvre l'application.",
+    "Arrêter",function(){
+      post("/api/action",{action:"stop"}).catch(function(){});
+      overlay("Bridge arrêté. Tu peux fermer cette page.");
+    });
+}
+function confirmRestart(){
+  openModal("Redémarrer le bridge ?",
+    "Coupure d'environ 3 secondes, puis tout redémarre automatiquement (utile après un changement de port ou pour activer le sACN).",
+    "Redémarrer",function(){
+      post("/api/action",{action:"restart"}).catch(function(){});
+      overlay("Redémarrage en cours…");
+      var tries=0;
+      var iv=setInterval(function(){
+        tries++;
+        fetch("/api/status",{cache:"no-store"}).then(function(r){return r.json();}).then(function(s){
+          if(s && s.uptimeSec < 30){clearInterval(iv);location.reload();}
+        }).catch(function(){});
+        if(tries>40){clearInterval(iv);$("overlayMsg").textContent=
+          "Le bridge ne répond pas. Vérifie qu'il a bien redémarré, puis recharge la page.";}
+      },1500);
+    });
+}
+
+/* ---------- helpers formats ---------- */
+function fmtUptime(s){
+  if(s<60)return s+" s";
+  if(s<3600)return Math.floor(s/60)+" min";
+  return Math.floor(s/3600)+" h "+Math.floor((s%3600)/60)+" min";
+}
+function fmtBw(b){
+  if(b>1048576)return (b/1048576).toFixed(1)+" Mo/s";
+  if(b>1024)return (b/1024).toFixed(1)+" Ko/s";
+  return b+" o/s";
+}
+function fmtSize(b){
+  if(b>1048576)return (b/1048576).toFixed(1)+" Mo";
+  if(b>1024)return Math.round(b/1024)+" Ko";
+  return b+" o";
+}
+function fmtDur(s){
+  if(s<60)return s+" s";
+  return Math.floor(s/60)+" min "+(s%60)+" s";
+}
+
+/* ---------- sparklines ---------- */
+var histA=[],histP=[];
+function drawSpark(cv,hist,color){
+  var c=cv.getContext("2d"),W=cv.width,H=cv.height;
+  c.clearRect(0,0,W,H);
+  if(hist.length<2)return;
+  var max=Math.max.apply(null,hist)*1.15||1;
+  c.beginPath();
+  hist.forEach(function(v,i){
+    var x=i/(hist.length-1)*W, y=H-2-(v/max)*(H-6);
+    i?c.lineTo(x,y):c.moveTo(x,y);
+  });
+  c.strokeStyle=color;c.lineWidth=1.6;c.stroke();
+  c.lineTo(W,H);c.lineTo(0,H);c.closePath();
+  c.fillStyle=color.replace("1)",".12)");c.fill();
+}
+
+/* ---------- statut (poll 1 s) ---------- */
+var statusFails=0, userTouchedTest=false, lastPusherFp="", lastRecState="";
+function refreshStatus(){
+  fetch("/api/status",{cache:"no-store"}).then(function(r){return r.json();}).then(function(s){
+    statusFails=0;
+    $("connBadge").classList.remove("off");
+    $("connBadge").lastChild.textContent="Connecté";
+    $("version").textContent="v"+s.version;
+    $("hUptime").textContent=fmtUptime(s.uptimeSec);
+    $("tArtnet").innerHTML=s.artnetPps+' <span class="unit">pqt/s</span>';
+    $("tSacn").innerHTML=s.sacnPps+' <span class="unit">pqt/s</span>';
+    $("tPush").innerHTML=s.pushPps+' <span class="unit">pqt/s</span>';
+    $("tPushers").textContent=s.pushers.length;
+    $("tBw").textContent=fmtBw(s.totalBandwidth);
+    $("tErrors").textContent=s.errorsTotal;
+    $("tErrors").style.color=s.errorsTotal>0?"var(--err)":"";
+    $("tErrCard").title=s.errorsTotal>0?("Dernière erreur : "+s.lastError+" — clique pour voir les logs"):"Aucune erreur — tout va bien";
+    histA.push(parseFloat(s.artnetPps)||0);if(histA.length>60)histA.shift();
+    histP.push(parseFloat(s.pushPps)||0);if(histP.length>60)histP.shift();
+    drawSpark($("spArtnet"),histA,"rgba(34,211,238,1)");
+    drawSpark($("spPush"),histP,"rgba(99,102,241,1)");
+
+    if(s.lanUrls && s.lanUrls.length){
+      if($("lanUrl").textContent!==s.lanUrls[0]){
+        $("lanUrl").textContent=s.lanUrls[0];
+        $("qrModalImg").src="/qr.svg?ts="+Date.now(); // l'adresse a changé : nouveau QR
+      }
+      $("lanUrl").title="Cliquer pour copier"+(s.lanUrls.length>1?" · autres : "+s.lanUrls.slice(1).join("  "):"");
+    } else {
+      $("lanUrl").textContent="aucune adresse réseau détectée";
+    }
+
+    $("testBanner").classList.toggle("show",s.testMode);
+    $("bannerLabel").textContent=s.testLabel?("En cours : "+s.testLabel):"";
+    $("wdBanner").classList.toggle("show",!!s.watchdogTriggered);
+    $("testLabel").textContent=s.testMode?(s.testLabel||""):"";
+    if(!userTouchedTest)$("testEnabled").checked=s.testMode;
+
+    /* enregistreur */
+    var rec=s.recorder||{};
+    $("playBanner").classList.toggle("show",!!rec.playing);
+    $("playBannerLabel").textContent=rec.playing?(rec.playName+(rec.playLoop?" (en boucle)":" ("+(rec.playPct||0)+" %)")):"";
+    $("recBanner").classList.toggle("show",!!rec.recording);
+    $("recBannerLabel").textContent=rec.recording?(rec.recName+" · "+rec.recSeconds+" s · "+rec.recFrames+" trames"):"";
+    $("recBtn").classList.toggle("rec",!!rec.recording);
+    $("recState").textContent=rec.recording?("⏺ "+rec.recName+" — "+rec.recSeconds+" s — "+rec.recFrames+" trames"):"";
+    var recStateStr=(rec.recording?"r":"")+(rec.playing?("p"+rec.playName):"");
+    if(recStateStr!==lastRecState){lastRecState=recStateStr;loadRecordings();}
+
+    /* santé */
+    var h=s.health;
+    var checks=[
+      [h.webServer,"Interface web active","Le serveur web du bridge répond."],
+      [h.artnetListening,"Écoute Art-Net (port 6454)",
+        h.artnetListening?"Prêt à recevoir les données de ta source.":"ERREUR : "+(h.artnetBindError||"port indisponible")+" — nouvel essai automatique toutes les 5 s."],
+      [h.pushersDetected,h.pusherCount+" PixelPusher(s) détecté(s)",
+        h.pushersDetected?"Découverte automatique OK.":"Vérifie alimentation, réseau et pare-feu (UDP 7331)."],
+      [h.dmxDataRecent,"Données DMX reçues",
+        h.dmxDataRecent?"Flux actif (dernière donnée il y a "+(h.lastDmxAgeMs<1500?"moins d'1 s":Math.round(h.lastDmxAgeMs/1000)+" s")+").":"Rien reçu depuis 10 s — source arrêtée ou mal configurée ?"],
+      [h.pushingFrames,"Trames envoyées aux pushers",
+        h.pushingFrames?"Les LED reçoivent le flux.":"Rien à envoyer (pas de données ou pas de pusher mappé)."]
+    ];
+    $("healthList").innerHTML=checks.map(function(c){
+      return '<div class="item"><span class="dot '+(c[0]?"ok":"ko")+'"></span><div><div class="t">'
+        +c[1]+'</div><div class="d">'+c[2]+"</div></div></div>";
+    }).join("");
+
+    /* univers */
+    if(s.universes.length){
+      s.universes.sort(function(a,b){return a.universe-b.universe;});
+      $("universes").innerHTML=s.universes.map(function(u){
+        return '<span class="chip">Univers <b>'+u.universe+"</b> · "
+          +(u.ageMs<2000?"actif":Math.round(u.ageMs/1000)+" s")+"</span>";
+      }).join("");
+    }else{
+      $("universes").innerHTML='<span class="hint">Aucune donnée DMX reçue pour l’instant — lance ta source Art-Net.</span>';
+    }
+
+    /* pushers */
+    var tb=$("pusherTable").querySelector("tbody");
+    if(!s.pushers.length){
+      tb.innerHTML='<tr><td colspan="10" class="hint">Aucun PixelPusher détecté. Vérifie qu’il est alimenté et sur le même réseau (annonce UDP port 7331).</td></tr>';
+    }else{
+      tb.innerHTML=s.pushers.map(function(p,i){
+        var stale=p.lastSeenSec>3;
+        var tag=stale?'<span class="tag warn">instable</span>':'<span class="tag on">en ligne</span>';
+        var universes="–";
+        if(p.artnetUniverse>0){
+          var total=p.strips*p.pixelsPerStrip;
+          var count=Math.max(1,Math.ceil(total/170));
+          universes="U"+p.artnetUniverse+(count>1?" → U"+(p.artnetUniverse+count-1):"");
+        }
+        return "<tr><td>"+tag+"</td><td>"+(i+1)+"</td><td>"+esc(p.ip)+"</td><td>"+esc(p.mac)
+          +"</td><td>"+p.strips+" × "+p.pixelsPerStrip+"</td><td>"
+          +(p.artnetUniverse||'<span class="tag off">0 !</span>')+"</td><td>"+universes
+          +"</td><td>"+(p.fps>0?p.fps:"–")+"</td><td>"+p.lastSeenSec+" s</td><td>"
+          +(p.mapped?"✅":'<span class="tag off">non mappé</span>')+"</td></tr>";
+      }).join("");
+    }
+
+    /* boutons de test de lignes (reconstruits si la config change) */
+    var fp=s.pushers.map(function(p){return p.mac+":"+p.strips;}).join("|");
+    if(fp!==lastPusherFp){lastPusherFp=fp;buildLineGrid(s.pushers);}
+  }).catch(function(){
+    statusFails++;
+    if(statusFails>=3){
+      $("connBadge").classList.add("off");
+      $("connBadge").lastChild.textContent="Déconnecté";
+    }
+  });
+}
+setInterval(refreshStatus,1000);
+refreshStatus();
+
+/* ---------- diagnostic ---------- */
+function runDiag(){
+  var el=$("diagResult");
+  el.style.display="block";
+  el.innerHTML='<span class="hint">Diagnostic en cours…</span>';
+  fetch("/api/diagnostic").then(function(r){return r.json();}).then(function(d){
+    var head=d.errors===0&&d.warnings===0
+      ?'<div style="color:var(--ok);font-weight:650;margin-bottom:10px">✅ Tout est bon — aucun problème détecté.</div>'
+      :'<div style="font-weight:650;margin-bottom:10px">'+(d.errors>0?'<span style="color:var(--err)">'+d.errors+' problème(s)</span> · ':'')
+        +(d.warnings>0?'<span style="color:var(--warn)">'+d.warnings+' avertissement(s)</span>':'')+'</div>';
+    el.innerHTML=head+d.checks.map(function(c){
+      var col=c.level==="ok"?"var(--ok)":c.level==="warn"?"var(--warn)":"var(--err)";
+      var ico=c.level==="ok"?"✓":c.level==="warn"?"⚠":"✗";
+      return '<div style="display:flex;gap:10px;padding:7px 0;border-bottom:1px solid rgba(42,51,69,.4)">'
+        +'<span style="color:'+col+';font-weight:700;flex:none;width:16px">'+ico+'</span>'
+        +'<div><div>'+esc(c.title)+'</div>'
+        +(c.advice?'<div class="hint" style="margin-top:2px">→ '+esc(c.advice)+'</div>':'')
+        +'</div></div>';
+    }).join("");
+  }).catch(function(){el.innerHTML='<span style="color:var(--err)">Bridge injoignable.</span>';});
+}
+
+/* ---------- moniteur DMX ---------- */
+var dmxTimer=null;
+var dmxDetails=document.querySelector("#tab-dash details");
+document.querySelectorAll("#tab-dash details").forEach(function(d){
+  if(d.querySelector("#dmxCanvas")){
+    d.addEventListener("toggle",function(){
+      if(d.open){dmxPoll();dmxTimer=setInterval(dmxPoll,250);}
+      else{clearInterval(dmxTimer);}
+    });
+  }
+});
+function dmxPoll(){
+  var u=parseInt($("dmxU").value,10)||1;
+  fetch("/api/dmx?u="+u,{cache:"no-store"}).then(function(r){return r.json();}).then(function(d){
+    var cv=$("dmxCanvas"),c=cv.getContext("2d"),W=cv.width,H=cv.height;
+    c.clearRect(0,0,W,H);
+    if(!d.values.length){
+      $("dmxInfo").textContent="Aucune donnée reçue sur l'univers "+u+" pour l'instant.";
+      return;
+    }
+    $("dmxInfo").textContent=d.ageMs>=0?("Dernière trame il y a "+(d.ageMs<1000?d.ageMs+" ms":Math.round(d.ageMs/1000)+" s")+" · "+d.values.length+" canaux"):"";
+    var bw=W/512;
+    for(var i=0;i<d.values.length&&i<512;i++){
+      var v=d.values[i];
+      if(v===0)continue;
+      var h=Math.max(1,v/255*(H-4));
+      // couleur selon la position dans le trio RGB
+      c.fillStyle=i%3===0?"rgba(248,113,113,.9)":i%3===1?"rgba(52,211,153,.9)":"rgba(77,163,255,.9)";
+      c.fillRect(i*bw,H-h,Math.max(1,bw-0.3),h);
+    }
+  }).catch(function(){});
+}
+$("dmxU").addEventListener("change",dmxPoll);
+
+/* QR code en popup */
+function showQr(){
+  var u=$("lanUrl").textContent;
+  $("qrModalUrl").textContent=u.indexOf("http")===0?u:"";
+  $("qrModalImg").src="/qr.svg?ts="+Date.now();
+  $("qrModalBg").style.display="flex";
+}
+
+/* copie de l'URL mobile */
+$("lanUrl").addEventListener("click",function(){
+  var t=this.textContent;
+  if(navigator.clipboard&&t.indexOf("http")===0){
+    navigator.clipboard.writeText(t).then(function(){toast("Adresse copiée : "+t);});
+  }
+});
+
+/* ---------- test de lignes ---------- */
+var lineSel={pusher:0,strip:0};
+function buildLineGrid(pushers){
+  var g=$("lineGrid");
+  if(!pushers.length){
+    g.innerHTML='<span class="hint">Aucun PixelPusher détecté pour l’instant — les boutons apparaîtront automatiquement.</span>';
+    return;
+  }
+  var html="";
+  pushers.forEach(function(p,pi){
+    html+='<div class="linerow"><div class="pname">Pusher '+(pi+1)
+      +'<small>'+esc(p.ip)+' · '+p.strips+' lignes</small></div>';
+    for(var si=0;si<p.strips;si++){
+      html+='<button type="button" class="lbtn" data-pusher="'+pi+'" data-strip="'+si+'">L'+(si+1)+"</button>";
+    }
+    html+='<button type="button" class="lbtn all" data-pusher="'+pi+'" data-strip="-1">Toutes</button></div>';
+  });
+  if(pushers.length>1){
+    html+='<div class="linerow"><div class="pname">Tous les pushers</div>'
+      +'<button type="button" class="lbtn all" data-pusher="-1" data-strip="-1">Tout allumer</button></div>';
+  }
+  g.innerHTML=html;
+  g.querySelectorAll(".lbtn").forEach(function(b){
+    b.addEventListener("click",function(){
+      lineSel.pusher=parseInt(b.dataset.pusher,10);
+      lineSel.strip=parseInt(b.dataset.strip,10);
+      g.querySelectorAll(".lbtn").forEach(function(x){x.classList.remove("sel");});
+      b.classList.add("sel");
+      selectPattern("line",true);
+      toast("Test ligne : "+(lineSel.pusher<0?"tous les pushers":"pusher "+(lineSel.pusher+1))
+        +(lineSel.strip<0?" — toutes les lignes":" — ligne "+(lineSel.strip+1)));
+    });
+  });
+}
+
+/* ---------- scénarios ---------- */
+var currentPattern="solid";
+function selectPattern(p,autoEnable){
+  currentPattern=p;
+  document.querySelectorAll(".pat").forEach(function(x){
+    x.classList.toggle("sel",x.dataset.p===p);
+  });
+  if(autoEnable&&!$("testEnabled").checked){$("testEnabled").checked=true;}
+  sendTest();
+}
+document.querySelectorAll(".pat").forEach(function(p){
+  p.addEventListener("click",function(){selectPattern(p.dataset.p,true);});
+});
+function sendTest(){
+  userTouchedTest=true;
+  post("/api/test",{
+    enabled:$("testEnabled").checked,
+    pattern:currentPattern,
+    color:$("testColor").value,
+    brightness:$("testBrightness").value,
+    speed:($("testSpeed").value/10).toFixed(1),
+    linePusher:lineSel.pusher,
+    lineStrip:lineSel.strip
+  }).then(function(){setTimeout(function(){userTouchedTest=false;},1500);})
+    .catch(function(){toast("Bridge injoignable","err");});
+}
+$("testEnabled").addEventListener("change",sendTest);
+$("testColor").addEventListener("change",sendTest);
+$("testBrightness").addEventListener("input",function(){$("testBrightnessVal").textContent=this.value+" %";});
+$("testBrightness").addEventListener("change",sendTest);
+$("testSpeed").addEventListener("input",function(){$("testSpeedVal").textContent=(this.value/10).toFixed(1)+"×";});
+$("testSpeed").addEventListener("change",sendTest);
+
+/* ---------- séquences ---------- */
+$("recBtn").addEventListener("click",function(){
+  if(this.classList.contains("rec")){
+    post("/api/recorder",{action:"stopRecord"}).then(function(){
+      toast("Enregistrement terminé ✓");refreshStatus();loadRecordings();
+    });
+  }else{
+    var name=$("recName").value||"sequence";
+    post("/api/recorder",{action:"record",name:name}).then(function(r){
+      if(r.ok){toast("Enregistrement démarré : "+r.name);refreshStatus();}
+      else{toast(r.error||"Erreur","err");}
+    });
+  }
+});
+function loadRecordings(){
+  fetch("/api/recorder").then(function(r){return r.json();}).then(function(d){
+    var el=$("recList");
+    var playing=d.state.playing?d.state.playName:"";
+    if(!d.recordings.length){
+      el.innerHTML='<span class="hint">Aucune séquence pour l’instant. Enregistre ce que ta console envoie, puis rejoue-le ici — même sans console.</span>';
+      return;
+    }
+    el.innerHTML=d.recordings.map(function(rec){
+      var isPlaying=rec.name===playing;
+      return '<div class="item"><span class="n">'+(isPlaying?"&#9654; ":"")+esc(rec.name)+'</span>'
+        +'<span class="meta">'+fmtDur(rec.durationSec)+' · '+fmtSize(rec.sizeBytes)+'</span><span class="sp"></span>'
+        +(isPlaying
+          ?'<button class="sbtn stop" data-a="stopPlay" data-n="'+esc(rec.name)+'">&#9632; Arrêter</button>'
+          :'<button class="sbtn play" data-a="play" data-n="'+esc(rec.name)+'">&#9654; Lire</button>'
+           +'<button class="sbtn play" data-a="playloop" data-n="'+esc(rec.name)+'">&#128257; Boucle</button>')
+        +'<button class="sbtn del" data-a="delete" data-n="'+esc(rec.name)+'">&#128465;</button></div>';
+    }).join("");
+    el.querySelectorAll(".sbtn").forEach(function(b){
+      b.addEventListener("click",function(){
+        var a=b.dataset.a,n=b.dataset.n;
+        if(a==="delete"){
+          openModal("Supprimer « "+n+" » ?","La séquence sera définitivement effacée.","Supprimer",function(){
+            post("/api/recorder",{action:"delete",name:n}).then(function(){toast("Séquence supprimée");loadRecordings();});
+          });
+        }else if(a==="stopPlay"){
+          post("/api/recorder",{action:"stopPlay"}).then(function(){toast("Lecture arrêtée — Art-Net rétabli");loadRecordings();refreshStatus();});
+        }else{
+          post("/api/recorder",{action:"play",name:n,loop:(a==="playloop")}).then(function(r){
+            if(r.ok){toast("Lecture : "+n+(a==="playloop"?" (en boucle)":""));}
+            else{toast(r.error||"Erreur de lecture","err");}
+            loadRecordings();refreshStatus();
+          });
+        }
+      });
+    });
+  });
+}
+loadRecordings();
+
+/* ---------- presets ---------- */
+function loadPresets(){
+  fetch("/api/presets").then(function(r){return r.json();}).then(function(d){
+    var sel=$("presetSel");
+    var cur=sel.value;
+    sel.innerHTML='<option value="">— presets —</option>'+d.presets.map(function(n){
+      return '<option value="'+esc(n)+'">'+esc(n)+"</option>";
+    }).join("");
+    sel.value=cur;
+  });
+}
+loadPresets();
+$("presetSaveBtn").addEventListener("click",function(){
+  var name=$("presetName").value.trim()||$("presetSel").value;
+  if(!name){toast("Donne un nom au preset","warn");return;}
+  post("/api/presets",{action:"save",name:name}).then(function(r){
+    if(r.ok){toast("Preset enregistré : "+name);$("presetName").value="";loadPresets();}
+    else toast(r.error||"Erreur","err");
+  });
+});
+$("presetLoadBtn").addEventListener("click",function(){
+  var name=$("presetSel").value;
+  if(!name){toast("Choisis un preset","warn");return;}
+  post("/api/presets",{action:"load",name:name}).then(function(r){
+    if(r.ok){
+      loadConfig();
+      toast(r.restartRequired?"Preset chargé — redémarre pour appliquer port/sACN.":"Preset chargé et appliqué ✓");
+    }else toast(r.error||"Erreur","err");
+  });
+});
+$("presetDelBtn").addEventListener("click",function(){
+  var name=$("presetSel").value;
+  if(!name){toast("Choisis un preset","warn");return;}
+  openModal("Supprimer le preset « "+name+" » ?","","Supprimer",function(){
+    post("/api/presets",{action:"delete",name:name}).then(function(){toast("Preset supprimé");loadPresets();});
+  });
+});
+
+/* ---------- adressage DMX ---------- */
+$("cMode").addEventListener("change",function(){
+  $("manualStarts").style.display=this.value==="manual"?"block":"none";
+  $("cStartWrap").style.display=this.value==="manual"?"none":"flex";
+  if(this.value==="manual")buildManualRows();
+});
+$("cLines").addEventListener("change",function(){
+  if($("cMode").value==="manual")buildManualRows();
+});
+function buildManualRows(){
+  var n=Math.max(1,Math.min(48,parseInt($("cLines").value,10)||1));
+  var host=$("manualStarts");
+  var old={};
+  host.querySelectorAll(".mrow").forEach(function(r){
+    old[r.dataset.i]={u:r.querySelector(".mu").value,c:r.querySelector(".mc").value};
+  });
+  var html='<div class="hint" style="margin-bottom:4px">Adresse de début de chaque ligne :</div>';
+  for(var i=0;i<n;i++){
+    var u=(old[i]&&old[i].u)||(i+1),c=(old[i]&&old[i].c)||1;
+    html+='<div class="mrow" data-i="'+i+'"><span>Ligne '+(i+1)+'</span>'
+      +'Univers <input type="number" class="mu" min="1" max="32768" value="'+u+'">'
+      +'Adresse <input type="number" class="mc" min="1" max="512" value="'+c+'"></div>';
+  }
+  host.innerHTML=html;
+}
+var calcCsv="";
+function calcRun(){
+  var ch=parseInt($("cType").value,10);
+  var ledsBar=Math.max(1,parseInt($("cLedsBar").value,10)||1);
+  var barsLine=Math.max(1,parseInt($("cBarsLine").value,10)||1);
+  var nLines=Math.max(1,Math.min(48,parseInt($("cLines").value,10)||1));
+  var mode=$("cMode").value;
+  var pxLine=ledsBar*barsLine;
+
+  // curseur global pour le mode packing
+  var u=parseInt($("cStartU").value,10)||1;
+  var c=parseInt($("cStartC").value,10)||1;
+  var rows=[], summary={}, errors=[];
+
+  function advance(){ c+=ch; if(512-c<ch){c=1;u++;} }
+
+  for(var li=0;li<nLines;li++){
+    if(mode==="manual"){
+      var r=$("manualStarts").querySelectorAll(".mrow")[li];
+      u=parseInt(r.querySelector(".mu").value,10)||1;
+      c=parseInt(r.querySelector(".mc").value,10)||1;
+    }else if(mode==="perline"&&li>0){
+      u++;c=1; // univers frais pour chaque ligne (comme le bridge sans packing)
+    }
+    if(c<1||c>512-ch+1){
+      errors.push("Ligne "+(li+1)+" : adresse de départ "+c+" invalide (1 à "+(512-ch+1)+" pour "+ch+" canaux/LED).");
+      continue;
+    }
+    for(var bi=0;bi<barsLine;bi++){
+      var startU=u,startC=c,endU=u,endC=c+ch-1;
+      for(var p=0;p<ledsBar;p++){
+        endU=u;endC=c+ch-1;
+        summary[u]=(summary[u]||0)+ch;
+        advance();
+      }
+      rows.push({line:li+1,bar:bi+1,leds:ledsBar,su:startU,sc:startC,eu:endU,ec:endC,
+        ch:ledsBar*ch});
+    }
+  }
+
+  var tb=$("calcTable").querySelector("tbody");
+  tb.innerHTML=rows.map(function(r){
+    return "<tr><td>"+r.line+"</td><td>"+r.bar+"</td><td>"+r.leds
+      +"</td><td><b>U"+r.su+"</b> : "+r.sc+"</td><td><b>U"+r.eu+"</b> : "+r.ec
+      +"</td><td>"+r.ch+"</td></tr>";
+  }).join("");
+  calcCsv="Ligne;Barre;LED;Univers debut;Adresse debut;Univers fin;Adresse fin;Canaux\n"
+    +rows.map(function(r){return [r.line,r.bar,r.leds,r.su,r.sc,r.eu,r.ec,r.ch].join(";");}).join("\n");
+
+  var uKeys=Object.keys(summary).map(Number).sort(function(a,b){return a-b;});
+  var totalLeds=nLines*pxLine;
+  var html="<b>Synthèse</b> — "+nLines+" lignes × "+barsLine+" barres × "+ledsBar+" LED = <b>"
+    +totalLeds+" LED</b> ("+(totalLeds*ch)+" canaux) sur <b>"+uKeys.length+" univers</b>";
+  if(uKeys.length)html+=" (U"+uKeys[0]+" → U"+uKeys[uKeys.length-1]+")";
+  html+="<div style='margin-top:8px'>"+uKeys.map(function(k){
+    return '<span class="chip">U<b>'+k+"</b> : "+summary[k]+" canaux ("+Math.round(summary[k]/ch)+" LED)</span>";
+  }).join("")+"</div>";
+  if(errors.length)html+='<div style="color:var(--err);margin-top:8px">'+errors.map(esc).join("<br>")+"</div>";
+  $("calcSummary").innerHTML=html;
+  $("calcOut").style.display="block";
+}
+function calcCopy(){
+  if(navigator.clipboard&&calcCsv){
+    navigator.clipboard.writeText(calcCsv).then(function(){toast("Map copiée (CSV) — collable dans Excel");});
+  }
+}
+
+/* ---------- configuration ---------- */
+function loadConfig(){
+  fetch("/api/config").then(function(r){return r.json();}).then(function(c){
+    $("c_colourOrder").value=c.colourOrder;
+    $("c_packing").checked=c.packing;
+    $("c_sacnEnabled").checked=c.sacnEnabled;
+    $("c_frameLimit").value=c.frameLimit;
+    $("c_autoThrottle").checked=c.autoThrottle;
+    $("c_extraDelayMs").value=c.extraDelayMs;
+    $("c_brightness").value=Math.round(c.brightness*100);
+    $("c_brightnessVal").textContent=Math.round(c.brightness*100)+" %";
+    $("c_antiLog").checked=c.antiLog;
+    $("c_webPort").value=c.webPort;
+    $("c_expiryEnabled").checked=c.expiryEnabled;
+    $("c_debug").checked=c.debug;
+    $("c_openBrowser").checked=c.openBrowser;
+    $("c_watchdogSec").value=c.watchdogSec;
+    $("c_blackoutOnExit").checked=c.blackoutOnExit;
+  });
+}
+loadConfig();
+$("c_brightness").addEventListener("input",function(){$("c_brightnessVal").textContent=this.value+" %";});
+$("saveBtn").addEventListener("click",function(){
+  post("/api/config",{
+    colourOrder:$("c_colourOrder").value,
+    packing:$("c_packing").checked,
+    sacnEnabled:$("c_sacnEnabled").checked,
+    frameLimit:$("c_frameLimit").value,
+    autoThrottle:$("c_autoThrottle").checked,
+    extraDelayMs:$("c_extraDelayMs").value,
+    brightness:($("c_brightness").value/100).toFixed(2),
+    antiLog:$("c_antiLog").checked,
+    webPort:$("c_webPort").value,
+    expiryEnabled:$("c_expiryEnabled").checked,
+    debug:$("c_debug").checked,
+    openBrowser:$("c_openBrowser").checked,
+    watchdogSec:$("c_watchdogSec").value,
+    blackoutOnExit:$("c_blackoutOnExit").checked
+  }).then(function(r){
+    if(r.ok){
+      toast(r.restartRequired
+        ?"Enregistré. Redémarre le bridge (bouton ↻) pour appliquer port/sACN."
+        :"Configuration enregistrée et appliquée ✓");
+    }else{
+      toast(r.error||"Erreur de validation","err");
+    }
+  }).catch(function(){toast("Bridge injoignable","err");});
+});
+$("remapBtn").addEventListener("click",function(){
+  post("/api/action",{action:"remap"}).then(function(){toast("Remappage effectué ✓");})
+    .catch(function(){toast("Bridge injoignable","err");});
+});
+
+/* ---------- logs ---------- */
+var logView=$("logView"),logCount=0;
+var levelOn={INFO:true,WARN:true,ERROR:true};
+var logFilter="";
+var autoScroll=true;
+document.querySelectorAll(".fchip[data-lvl]").forEach(function(ch){
+  ch.addEventListener("click",function(){
+    ch.classList.toggle("on");
+    levelOn[ch.dataset.lvl]=ch.classList.contains("on");
+  });
+});
+$("autoScrollChip").addEventListener("click",function(){
+  this.classList.toggle("on");autoScroll=this.classList.contains("on");
+});
+$("logSearch").addEventListener("input",function(){logFilter=this.value.toLowerCase();});
+function addLogLine(e){
+  if(!levelOn[e.level])return;
+  if(logFilter&&e.msg.toLowerCase().indexOf(logFilter)<0)return;
+  if(logCount>2000){logView.removeChild(logView.firstChild);}else{logCount++;}
+  var d=new Date(e.ts);
+  var ts=("0"+d.getHours()).slice(-2)+":"+("0"+d.getMinutes()).slice(-2)+":"+("0"+d.getSeconds()).slice(-2);
+  var div=document.createElement("div");
+  div.className="lg-"+e.level;
+  div.innerHTML='<span class="lg-ts">'+ts+"</span> "+esc(e.msg);
+  logView.appendChild(div);
+  if(autoScroll)logView.scrollTop=logView.scrollHeight;
+}
+function clearLogsLocal(){
+  logView.innerHTML="";logCount=0;
+  post("/api/action",{action:"clearLogs"});
+}
+function connectSse(){
+  var es=new EventSource("/api/logs");
+  es.addEventListener("log",function(ev){addLogLine(JSON.parse(ev.data));});
+  es.onerror=function(){es.close();setTimeout(connectSse,3000);};
+}
+connectSse();
+</script>
+</body>
+</html>
