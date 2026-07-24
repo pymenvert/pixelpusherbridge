@@ -53,13 +53,34 @@ public class WebServer {
   }
 
   // clients SSE (flux de logs)
+  private static final int SSE_MAX_CLIENTS = 20;
+  /**
+   * Trames en attente pour UN client avant qu'il ne soit considere perdu.
+   * Doit rester superieur a la taille de l'historique du bus de logs (3000
+   * lignes) : a la connexion, tout l'historique passe par cette file.
+   */
+  private static final int SSE_CLIENT_QUEUE = 4000;
+  /** Duree sans aucune ecriture aboutie au-dela de laquelle un client est ferme. */
+  private static final long SSE_STALL_MS = 30000;
+
   private final CopyOnWriteArrayList<SseClient> sseClients = new CopyOnWriteArrayList<SseClient>();
   private final ScheduledExecutorService pinger;
   /** File tampon entre le bus de logs et les clients SSE (voir startSseDispatcher). */
-  private final java.util.concurrent.BlockingQueue<String> sseQueue =
-      new java.util.concurrent.ArrayBlockingQueue<String>(2000);
+  private final java.util.concurrent.BlockingQueue<SseMsg> sseQueue =
+      new java.util.concurrent.ArrayBlockingQueue<SseMsg>(2000);
   private final java.util.concurrent.atomic.AtomicLong sseDropped =
       new java.util.concurrent.atomic.AtomicLong();
+
+  /** Ligne de log a diffuser : le JSON est construit une fois, le numero suit. */
+  private static final class SseMsg {
+    final long seq;
+    final String json;
+
+    SseMsg(long seq, String json) {
+      this.seq = seq;
+      this.json = json;
+    }
+  }
 
   /** Lignes de log non diffusees faute de place dans la file (diagnostic). */
   public long getSseDropped() {
@@ -204,10 +225,23 @@ public class WebServer {
 
   /** Demarre le serveur ; essaie le port configure puis les 10 suivants. */
   public void start() throws IOException {
+    // Sans cette propriete, le serveur du JDK n'a AUCUN minuteur (valeur -1 par
+    // defaut) : une connexion qui ouvre le socket puis n'envoie jamais la fin de
+    // sa requete immobilise un thread web pour toujours. 20 s laissent tout le
+    // temps a un client normal. Surtout ne pas poser maxRspTime : il couperait
+    // le flux de logs de /api/logs, volontairement infini.
+    // Doit etre pose AVANT le premier HttpServer.create (lecture statique).
+    System.setProperty("sun.net.httpserver.maxReqTime", "20");
+
     bind(cfg.getWebPort());
 
     if (server != null) {
-      server.setExecutor(Executors.newCachedThreadPool(new ThreadFactory() {
+      // Pool borne : un pool sans plafond permet a n'importe quelle machine du
+      // reseau de faire naitre des milliers de threads (une requete incomplete
+      // par connexion) jusqu'a l'OutOfMemoryError. 24 threads suffisent, aucun
+      // handler ne monopolise le sien - y compris celui du flux de logs, qui
+      // rend la main des que le client est enregistre.
+      server.setExecutor(Executors.newFixedThreadPool(24, new ThreadFactory() {
         private int n = 0;
         public synchronized Thread newThread(Runnable r) {
           Thread t = new Thread(r, "web-" + (n++));
@@ -290,9 +324,6 @@ public class WebServer {
     });
     route("/api/diagnostic", new SafeHandler() {
       void doHandle(HttpExchange ex) throws IOException {
-        if ("/api/diagnostic/download".equals(ex.getRequestURI().getPath())) {
-          return; // gere par le contexte plus specifique
-        }
         if (diagnostic == null) {
           sendJson(ex, 503, "{\"ok\":false}");
           return;
@@ -312,11 +343,19 @@ public class WebServer {
       miniServer.start();
     }
 
-    // ping SSE toutes les 15 s pour garder les connexions ouvertes
+    // Ping SSE toutes les 15 s pour garder les connexions ouvertes, et purge des
+    // clients dont les ecritures n'avancent plus : un telephone sorti de portee
+    // ne ferme pas sa connexion, il occupait une place jusqu'au redemarrage.
+    // Le try/catch est indispensable : une exception ici annulerait la tache
+    // periodique pour de bon (comportement de scheduleAtFixedRate).
     pinger.scheduleAtFixedRate(new Runnable() {
       public void run() {
         for (SseClient c : sseClients) {
-          c.ping();
+          try {
+            c.ping();
+            c.closeIfStalled(SSE_STALL_MS);
+          } catch (RuntimeException ignored) {
+          }
         }
       }
     }, 15, 15, TimeUnit.SECONDS);
@@ -333,7 +372,7 @@ public class WebServer {
     // Art-Net -> pushers ne peut plus jamais attendre un navigateur.
     LogBus.addListener(new LogBus.Listener() {
       public void onLog(LogBus.Entry e) {
-        if (!sseQueue.offer(e.toJson())) {
+        if (!sseQueue.offer(new SseMsg(e.seq, e.toJson()))) {
           sseDropped.incrementAndGet();
         }
       }
@@ -461,12 +500,27 @@ public class WebServer {
 
   // ---------- handlers ----------
 
+  /**
+   * Enveloppe commune a tous les endpoints.
+   *
+   * REGLE : aucun chemin ne doit quitter un handler sans avoir emis de reponse.
+   * Un simple « return » laisserait l'echange ouvert, l'onglet du navigateur en
+   * chargement jusqu'a son propre delai d'attente, et le thread web mobilise.
+   */
   private abstract class SafeHandler implements HttpHandler {
     abstract void doHandle(HttpExchange ex) throws IOException;
 
     public final void handle(HttpExchange ex) {
       try {
+        if (!checkOrigin(ex)) {
+          return; // reponse 403 deja emise
+        }
         doHandle(ex);
+      } catch (RequestTooLargeException e) {
+        try {
+          sendJson(ex, 413, "{\"ok\":false,\"error\":\"Requête trop volumineuse\"}");
+        } catch (IOException ignored) {
+        }
       } catch (Exception e) {
         LogBus.error("Web: erreur sur " + ex.getRequestURI() + " : " + e);
         try {
@@ -474,6 +528,69 @@ public class WebServer {
         } catch (IOException ignored) {
         }
       }
+    }
+  }
+
+  /**
+   * Refuse les requetes d'ecriture emises par une autre page que l'interface.
+   *
+   * Sans ce controle, n'importe quel onglet ouvert sur l'ordinateur de regie
+   * peut poster sur /api/action : un POST en form-urlencoded est une requete
+   * « simple » au sens du navigateur, il part sans autorisation prealable, et
+   * la page malveillante n'a meme pas besoin d'en lire la reponse pour arreter
+   * le bridge en pleine representation.
+   *
+   * Le navigateur joint systematiquement un en-tete Origin aux POST. Comme
+   * l'interface est servie par ce meme serveur, cet Origin correspond toujours
+   * a l'en-tete Host : toute autre valeur vient d'une page tierce. Un Origin
+   * absent est accepte - c'est le cas des outils en ligne de commande et des
+   * scripts locaux, jamais celui d'une page web (aucune page ne peut supprimer
+   * cet en-tete), donc accepter ne rouvre pas la faille.
+   */
+  private static boolean checkOrigin(HttpExchange ex) throws IOException {
+    if (!"POST".equalsIgnoreCase(ex.getRequestMethod())) {
+      return true;
+    }
+    String origin = ex.getRequestHeaders().getFirst("Origin");
+    if (origin == null || origin.length() == 0) {
+      return true;
+    }
+    String host = ex.getRequestHeaders().getFirst("Host");
+    int sep = origin.indexOf("://");
+    if (host != null && sep > 0 && origin.substring(sep + 3).equalsIgnoreCase(host)) {
+      return true;
+    }
+    LogBus.warn("Commande refusée : elle provient d'une autre page (" + origin
+        + "). Si c'est bien l'interface du bridge, recharge-la complètement.");
+    sendJson(ex, 403, "{\"ok\":false,\"error\":\"Origine non autorisée\"}");
+    return false;
+  }
+
+  /**
+   * La requete vient-elle de l'ordinateur qui execute le bridge ?
+   *
+   * La boucle locale ne suffit pas. Sur la machine de regie, l'interface est
+   * tres souvent ouverte par son adresse LAN et non par localhost : lien recopie
+   * depuis le QR code, page laissee ouverte apres un changement de port, second
+   * navigateur... L'adresse d'origine est alors celle de la carte reseau, et
+   * refuser la demande donnerait un bouton « Arreter » qui ne fait rien, sans
+   * explication visible. getByInetAddress ne repond que pour une adresse portee
+   * par une interface de CETTE machine : la reponse reste donc bien « meme
+   * ordinateur », jamais « meme reseau ».
+   */
+  private static boolean isLocalRequest(HttpExchange ex) {
+    java.net.InetSocketAddress a = ex.getRemoteAddress();
+    if (a == null || a.getAddress() == null) {
+      return false;
+    }
+    java.net.InetAddress addr = a.getAddress();
+    if (addr.isLoopbackAddress()) {
+      return true;
+    }
+    try {
+      return java.net.NetworkInterface.getByInetAddress(addr) != null;
+    } catch (Exception e) {
+      return false; // dans le doute on refuse : c'est le sens de ce garde-fou
     }
   }
 
@@ -813,12 +930,24 @@ public class WebServer {
     } else if ("resume".equals(action)) {
       blackout.release();
       sendJson(ex, 200, "{\"ok\":true,\"blackoutActive\":false}");
-    } else if ("stop".equals(action)) {
-      sendJson(ex, 200, "{\"ok\":true,\"stopping\":true}");
-      Main.scheduleShutdown(false);
-    } else if ("restart".equals(action)) {
-      sendJson(ex, 200, "{\"ok\":true,\"restarting\":true}");
-      Main.scheduleShutdown(true);
+    } else if ("stop".equals(action) || "restart".equals(action)) {
+      // Arret et redemarrage sont les seules commandes dont on ne revient pas a
+      // distance : une fois la JVM sortie, plus d'interface, il faut retourner
+      // physiquement a la machine. Comme l'interface est joignable par tout le
+      // reseau du lieu et sans mot de passe (c'est voulu : acces telephone par
+      // QR code), on les reserve a l'ordinateur qui execute le bridge. Le
+      // telephone n'en a pas besoin : il ne propose ni arret ni redemarrage.
+      boolean restart = "restart".equals(action);
+      if (!isLocalRequest(ex)) {
+        LogBus.warn((restart ? "Redémarrage refusé" : "Arrêt refusé")
+            + " : la demande ne vient pas de cet ordinateur.");
+        sendJson(ex, 403, "{\"ok\":false,\"error\":\"L'arrêt et le redémarrage ne sont "
+            + "autorisés que depuis l'ordinateur qui exécute le bridge.\"}");
+        return;
+      }
+      sendJson(ex, 200, restart ? "{\"ok\":true,\"restarting\":true}"
+          : "{\"ok\":true,\"stopping\":true}");
+      Main.scheduleShutdown(restart);
     } else {
       sendJson(ex, 400, "{\"ok\":false,\"error\":\"Action inconnue\"}");
     }
@@ -844,47 +973,154 @@ public class WebServer {
 
   // ---------- SSE ----------
 
+  /**
+   * Un navigateur abonne au flux de logs.
+   *
+   * Chaque client a sa propre file et son propre thread d'ecriture, et c'est
+   * indispensable : la socket d'un client dont la liaison a disparu sans
+   * fermeture propre (telephone hors de portee, WiFi coupe, veille) accepte
+   * encore quelques dizaines de kilo-octets, puis BLOQUE l'ecriture le temps
+   * que TCP renonce - plusieurs minutes. Avec une ecriture directe, ce seul
+   * client figeait la diffusion pour tous les autres et gardait sa place
+   * jusqu'au redemarrage. Ici il ne fige que son propre thread : sa file se
+   * remplit, il est ferme, sa place est rendue.
+   */
   private final class SseClient {
     private final HttpExchange exchange;
     private final OutputStream out;
+    private final java.util.concurrent.BlockingQueue<String> outQueue =
+        new java.util.concurrent.ArrayBlockingQueue<String>(SSE_CLIENT_QUEUE);
     private volatile boolean dead = false;
+    /** Date de la derniere ecriture reellement aboutie (detection des liaisons mortes). */
+    private volatile long lastWriteMs = System.currentTimeMillis();
+    /** Dernier numero de sequence deja mis en file (protege par le moniteur). */
+    private long lastSeq = 0;
+    private Thread writer;
 
     SseClient(HttpExchange exchange, OutputStream out) {
       this.exchange = exchange;
       this.out = out;
     }
 
-    synchronized void send(String event, String data) {
+    /** Demarre le thread d'ecriture dedie a ce client. */
+    void start() {
+      writer = new Thread(new Runnable() {
+        public void run() {
+          while (!dead) {
+            String frame;
+            try {
+              frame = outQueue.take();
+            } catch (InterruptedException e) {
+              return; // fermeture demandee
+            }
+            try {
+              out.write(frame.getBytes(StandardCharsets.UTF_8));
+              if (outQueue.isEmpty()) {
+                out.flush(); // un seul flush par rafale
+              }
+              lastWriteMs = System.currentTimeMillis();
+            } catch (IOException e) {
+              close();
+              return;
+            }
+          }
+        }
+      }, "sse-out");
+      writer.setDaemon(true);
+      writer.start();
+    }
+
+    /**
+     * Met une trame en file d'envoi. Deux garde-fous :
+     *  - un numero de sequence deja traite est ignore, car le rattrapage de
+     *    l'historique et la diffusion en direct se chevauchent a la connexion ;
+     *  - une file pleine signifie que le client n'absorbe plus rien : on le
+     *    ferme au lieu de le garder indefiniment.
+     */
+    synchronized void offer(long seq, String frame) {
       if (dead) {
         return;
       }
-      try {
-        out.write(("event: " + event + "\ndata: " + data + "\n\n")
-            .getBytes(StandardCharsets.UTF_8));
-        out.flush();
-      } catch (IOException e) {
+      if (seq > 0) {
+        if (seq <= lastSeq) {
+          return;
+        }
+        lastSeq = seq;
+      }
+      if (!outQueue.offer(frame)) {
         close();
       }
     }
 
-    synchronized void ping() {
-      if (dead) {
+    void send(long seq, String event, String data) {
+      // Le champ « id » permet au navigateur de reprendre ou il en etait apres
+      // une coupure (en-tete Last-Event-ID) au lieu de redemander tout
+      // l'historique a chaque reconnexion.
+      offer(seq, (seq > 0 ? "id: " + seq + "\n" : "")
+          + "event: " + event + "\ndata: " + data + "\n\n");
+    }
+
+    void ping() {
+      offer(0, ": ping\n\n");
+    }
+
+    boolean isDead() {
+      return dead;
+    }
+
+    /** Bloque le thread appelant tant que ce client vit (voir handleSse). */
+    void awaitClose() {
+      Thread w = writer;
+      if (w == null) {
         return;
       }
       try {
-        out.write(": ping\n\n".getBytes(StandardCharsets.UTF_8));
-        out.flush();
-      } catch (IOException e) {
+        w.join();
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+    }
+
+    /** Ferme un client dont les ecritures n'avancent plus depuis trop longtemps. */
+    void closeIfStalled(long maxSilentMs) {
+      if (!dead && !outQueue.isEmpty()
+          && System.currentTimeMillis() - lastWriteMs > maxSilentMs) {
         close();
       }
     }
 
-    void close() {
+    synchronized void close() {
+      if (dead) {
+        return;
+      }
       dead = true;
       sseClients.remove(this);
+      outQueue.clear();
+      if (writer != null) {
+        writer.interrupt();
+      }
+      // Fermer l'echange vide le tampon de sortie, donc ECRIT dans la socket :
+      // sur une liaison morte cette ecriture bloque le temps que TCP renonce,
+      // plusieurs minutes. Or close() est appele depuis le thread de diffusion
+      // (file pleine) et depuis celui des pings (purge des clients bloques) :
+      // le faire sur place figerait le journal de tous les autres clients,
+      // exactement ce que cette classe s'emploie a eviter. On confie donc la
+      // fermeture a un thread jetable - au plus un par client, et il n'y a
+      // jamais plus de SSE_MAX_CLIENTS clients. Bonus : c'est cette fermeture
+      // qui debloque le thread d'ecriture s'il est coince dans un write().
+      Thread closer = new Thread(new Runnable() {
+        public void run() {
+          try {
+            exchange.close();
+          } catch (RuntimeException ignored) {
+          }
+        }
+      }, "sse-close");
+      closer.setDaemon(true);
       try {
-        exchange.close();
+        closer.start();
       } catch (RuntimeException ignored) {
+        // impossible de creer le thread : la place du client est deja rendue
       }
     }
   }
@@ -897,16 +1133,16 @@ public class WebServer {
     Thread t = new Thread(new Runnable() {
       public void run() {
         while (true) {
-          String json;
+          SseMsg m;
           try {
-            json = sseQueue.take();
+            m = sseQueue.take();
           } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return;
           }
           for (SseClient c : sseClients) {
             try {
-              c.send("log", json);
+              c.send(m.seq, "log", m.json);
             } catch (RuntimeException e) {
               // un client defaillant ne doit jamais interrompre la diffusion
             }
@@ -919,27 +1155,69 @@ public class WebServer {
   }
 
   private void handleSse(HttpExchange ex) throws IOException {
-    if (sseClients.size() >= 20) {
+    if (sseClients.size() >= SSE_MAX_CLIENTS) {
       // garde-fou : evite une fuite de connexions si trop d'onglets ouverts
       sendJson(ex, 503, "{\"ok\":false,\"error\":\"Trop de clients connectes\"}");
       return;
     }
+    // Reprise apres coupure : le navigateur renvoie de lui-meme le dernier
+    // identifiant recu, on ne lui reexpedie donc que ce qui lui manque.
+    long since = parseLong(ex.getRequestHeaders().getFirst("Last-Event-ID"), 0);
     ex.getResponseHeaders().set("Content-Type", "text/event-stream; charset=utf-8");
     ex.getResponseHeaders().set("Cache-Control", "no-cache");
     ex.sendResponseHeaders(200, 0);
     OutputStream os = ex.getResponseBody();
     SseClient client = new SseClient(ex, os);
+    client.start();
 
-    // historique d'abord, puis abonnement au flux
-    List<LogBus.Entry> backlog = LogBus.getSince(0);
+    // Historique, abonnement, puis rattrapage de ce qui a ete produit PENDANT
+    // l'envoi de l'historique : sans ce dernier passage, toutes ces lignes
+    // etaient definitivement perdues pour ce client. Les doublons eventuels
+    // avec la diffusion en direct sont ecartes par le numero de sequence.
+    long delivered = since;
+    List<LogBus.Entry> backlog = LogBus.getSince(since);
     for (LogBus.Entry e : backlog) {
-      client.send("log", e.toJson());
+      client.send(e.seq, "log", e.toJson());
+      delivered = e.seq;
+    }
+    if (client.isDead()) {
+      return;
     }
     sseClients.add(client);
-    // la connexion reste ouverte : les ecritures suivantes viennent du listener LogBus
+    for (LogBus.Entry e : LogBus.getSince(delivered)) {
+      client.send(e.seq, "log", e.toJson());
+    }
+    if (client.isDead()) {
+      sseClients.remove(client);
+      return;
+    }
+    // La connexion reste ouverte : les ecritures suivantes viennent du dispatcher.
+    //
+    // Sauf sur le serveur de secours : celui-ci fonctionne en « un thread par
+    // connexion » et ferme la socket des que le handler rend la main, ce qui
+    // couperait le journal au bout d'une ligne. On tient donc la ligne ici
+    // jusqu'a la fin du client. C'est sans danger : ce serveur accepte 64
+    // connexions et le nombre de clients du journal est plafonne a 20.
+    // Sur le serveur du JDK, l'echange survit au handler : y attendre
+    // immobiliserait pour rien un thread du pool web.
+    if (miniServer != null) {
+      client.awaitClose();
+    }
   }
 
   // ---------- utilitaires HTTP ----------
+
+  /** Taille maximale acceptee pour un formulaire (les notres font quelques centaines d'octets). */
+  private static final int MAX_FORM_BYTES = 65536;
+
+  /** Corps de requete trop volumineux : SafeHandler le traduit en HTTP 413. */
+  private static final class RequestTooLargeException extends IOException {
+    private static final long serialVersionUID = 1L;
+
+    RequestTooLargeException(String message) {
+      super(message);
+    }
+  }
 
   private static byte[] readAll(InputStream in) throws IOException {
     return readAll(in, Integer.MAX_VALUE);
@@ -959,7 +1237,8 @@ public class WebServer {
     while ((n = in.read(buf)) > 0) {
       if (bos.size() + n > maxBytes) {
         in.close();
-        throw new IOException("Corps de requete trop volumineux (limite " + maxBytes + " octets)");
+        throw new RequestTooLargeException(
+            "Corps de requete trop volumineux (limite " + maxBytes + " octets)");
       }
       bos.write(buf, 0, n);
     }
@@ -968,7 +1247,13 @@ public class WebServer {
   }
 
   private static Map<String, String> parseForm(HttpExchange ex) throws IOException {
-    byte[] raw = readAll(ex.getRequestBody(), 65536);
+    // Quand la taille est annoncee, on refuse avant meme de lire le corps :
+    // inutile de faire transiter des mega-octets pour les rejeter ensuite.
+    long declared = parseLong(ex.getRequestHeaders().getFirst("Content-Length"), -1);
+    if (declared > MAX_FORM_BYTES) {
+      throw new RequestTooLargeException("Corps de requete annonce a " + declared + " octets");
+    }
+    byte[] raw = readAll(ex.getRequestBody(), MAX_FORM_BYTES);
     String body = new String(raw, StandardCharsets.UTF_8);
     Map<String, String> map = new HashMap<String, String>();
     for (String pair : body.split("&")) {
@@ -1000,6 +1285,14 @@ public class WebServer {
   private static int parseInt(String s, int def) {
     try {
       return Integer.parseInt(s.trim());
+    } catch (Exception e) {
+      return def;
+    }
+  }
+
+  private static long parseLong(String s, long def) {
+    try {
+      return Long.parseLong(s.trim());
     } catch (Exception e) {
       return def;
     }

@@ -212,14 +212,20 @@
   /* tests */
   .mastertest{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
   .patterns{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin:14px 0}
+  /* Les scenarios sont de vrais <button> : ils etaient de simples <div> avec un
+     listener click, donc inatteignables au clavier et muets pour un lecteur
+     d'ecran. Le style reste identique, il faut juste neutraliser l'apparence
+     native du bouton. */
   .pat{background:var(--panel2);border:1px solid var(--border);border-radius:12px;
-    padding:13px 12px;cursor:pointer;transition:.15s;text-align:center}
+    padding:13px 12px;cursor:pointer;transition:.15s;text-align:center;
+    display:block;width:100%;font-family:inherit;font-size:14px;color:inherit;
+    -webkit-appearance:none;appearance:none}
   .pat:hover{border-color:var(--acc);transform:translateY(-2px)}
   .pat.sel{border-color:var(--acc);background:linear-gradient(135deg,rgba(99,102,241,.2),rgba(34,211,238,.1));
     box-shadow:0 0 16px rgba(99,102,241,.25)}
   .pat .ico{font-size:21px;margin-bottom:5px}
   .pat .n{font-weight:600;font-size:12.5px}
-  .pat .d{color:var(--muted);font-size:10.5px;margin-top:3px;line-height:1.35}
+  .pat .d{color:var(--muted);font-size:11.5px;margin-top:3px;line-height:1.35;font-weight:400}
   .testparams{display:flex;gap:26px;flex-wrap:wrap;align-items:center;padding:12px 0}
   .testparams label{display:flex;align-items:center;gap:9px;color:var(--muted);font-size:13px}
   .testparams .val{min-width:42px;color:var(--text);font-variant-numeric:tabular-nums}
@@ -265,9 +271,11 @@
 
   /* logs */
   .toolbar{display:flex;align-items:center;gap:9px;margin-bottom:10px;flex-wrap:wrap}
+  /* Idem : les chips de filtre sont des <button aria-pressed>, pas des <div>. */
   .fchip{display:flex;align-items:center;gap:6px;background:var(--panel2);
     border:1px solid var(--border);border-radius:16px;padding:5px 13px;cursor:pointer;
-    font-size:12px;color:var(--muted);user-select:none;transition:.15s;font-weight:550}
+    font-size:12px;color:var(--muted);user-select:none;transition:.15s;font-weight:550;
+    font-family:inherit;-webkit-appearance:none;appearance:none}
   .fchip.on{color:var(--text);border-color:var(--acc)}
   .fchip .cdot{width:8px;height:8px;border-radius:50%}
   #logView{background:rgba(5,8,12,.85);border:1px solid var(--border);border-radius:var(--r);
@@ -330,8 +338,8 @@
     <div class="sub">Pont Art-Net / sACN &rarr; PixelPusher &middot; <span id="version">&ndash;</span> &middot; en marche depuis <span id="hUptime">&ndash;</span></div>
   </div>
   <div class="hspacer"></div>
-  <button class="hbtn" id="hBlackout" onclick="quickBlackout()" title="Éteint toutes les LED et ignore le flux entrant jusqu'à la reprise">&#9899; <span>Blackout</span></button>
-  <button class="hbtn warn" onclick="confirmRestart()" title="Redémarre l'application (coupure ~3 s)">&#8635; <span>Red&eacute;marrer</span></button>
+  <button class="hbtn" id="hBlackout" onclick="quickBlackout()" title="Éteint toutes les LED et ignore le flux entrant jusqu’à la reprise">&#9899; <span>Blackout</span></button>
+  <button class="hbtn warn" onclick="confirmRestart()" title="Redémarre l’application (coupure ~3 s)">&#8635; <span>Red&eacute;marrer</span></button>
   <button class="hbtn danger" onclick="confirmStop()" title="Arrête complètement le bridge">&#9209; <span>Arr&ecirc;ter</span></button>
   <div id="connBadge"><span class="pulse"></span>Connect&eacute;</div>
 </header>
@@ -347,6 +355,13 @@
 </nav>
 
 <main>
+  <div id="offBanner" class="banner wd">&#9888;&nbsp; <b>Interface d&eacute;connect&eacute;e du bridge</b> &mdash;
+    <span id="offBannerAge"></span>. Les valeurs affich&eacute;es ne sont plus &agrave; jour.</div>
+  <div id="cfgChangedBanner" class="banner test">&#9998;&nbsp; <b>La configuration a &eacute;t&eacute; modifi&eacute;e ailleurs</b>
+    (t&eacute;l&eacute;phone, preset&hellip;) alors que tu as des changements non enregistr&eacute;s ici.
+    <span style="flex:1"></span>
+    <button class="btn sec" type="button" onclick="reloadCfgFromServer()">Recharger la config du bridge</button>
+    <button class="btn sec" type="button" onclick="keepMyCfg()">Garder mes valeurs</button></div>
   <div id="blackoutBanner" class="banner bo">&#9899;&nbsp; <b>BLACKOUT ACTIF</b> &mdash; toutes les LED sont &eacute;teintes et
     <b>les donn&eacute;es entrantes sont ignor&eacute;es</b>. Rien ne se rallumera tant que tu n&rsquo;auras pas repris la main.
     <span style="flex:1"></span>
@@ -363,17 +378,20 @@
         <div class="big" id="tArtnet">0 <span class="unit">paquets/s</span></div>
         <canvas id="spArtnet" width="220" height="34"></canvas></div>
       <div class="card tile"><div class="lbl">sACN re&ccedil;u</div>
-        <div class="big" id="tSacn">0 <span class="unit">paquets/s</span></div></div>
+        <div class="big" id="tSacn">0 <span class="unit">paquets/s</span></div>
+        <canvas id="spSacn" width="220" height="34"></canvas></div>
       <div class="card tile"><div class="lbl">&rarr; Pushers</div>
         <div class="big" id="tPush">0 <span class="unit">paquets/s</span></div>
         <canvas id="spPush" width="220" height="34"></canvas></div>
       <div class="card tile"><div class="lbl">PixelPushers</div>
         <div class="big" id="tPushers">0</div></div>
       <div class="card tile"><div class="lbl">Bande passante</div>
-        <div class="big" id="tBw">0</div></div>
+        <div class="big" id="tBw">0</div>
+        <canvas id="spBw" width="220" height="34"></canvas></div>
       <div class="card tile" id="tPwrCard" title="Consommation annoncée par les pushers"><div class="lbl">Puissance</div>
         <div class="big" id="tPower">&ndash;</div></div>
-      <div class="card tile" id="tErrCard" style="cursor:pointer" title="Voir les logs"><div class="lbl">Erreurs</div>
+      <div class="card tile" id="tErrCard" style="cursor:pointer" title="Voir les logs"
+        role="button" tabindex="0" aria-label="Erreurs — ouvrir les logs"><div class="lbl">Erreurs</div>
         <div class="big" id="tErrors">0</div></div>
     </div>
 
@@ -382,20 +400,21 @@
       <div style="flex:1;min-width:220px">
         <b>Acc&egrave;s depuis ton t&eacute;l&eacute;phone</b>
         <div class="hint" style="margin-top:3px">Interface simplifi&eacute;e (blackout, luminosit&eacute;, tests, presets, s&eacute;quences)
-          &mdash; m&ecirc;me r&eacute;seau WiFi requis. Le plus simple : le QR code, &agrave; scanner avec l&rsquo;appareil photo.</div>
+          &mdash; m&ecirc;me r&eacute;seau WiFi requis. Le plus simple&nbsp;: le QR code, &agrave; scanner avec l&rsquo;appareil photo.</div>
       </div>
-      <span id="lanUrl" class="chip" style="font-size:13px;cursor:pointer" title="Cliquer pour copier">&hellip;</span>
+      <span id="lanUrl" class="chip" style="font-size:13px;cursor:pointer" title="Cliquer pour copier"
+        role="button" tabindex="0" aria-label="Copier l’adresse de l’interface téléphone">&hellip;</span>
       <button class="btn sec" type="button" onclick="showQr()">&#9635; Afficher le QR code</button>
     </div>
 
-    <h2><span class="ic">&#10003;</span> Est-ce que tout marche ?</h2>
+    <h2><span class="ic">&#10003;</span> Est-ce que tout marche&nbsp;?</h2>
     <div class="card health" id="healthList"></div>
 
     <h2><span class="ic">&#129658;</span> Diagnostic complet
       <span class="hint">passe tout en revue et donne un conseil pour chaque probl&egrave;me</span>
       <span class="hspacer"></span>
       <button class="btn sec" onclick="runDiag()">&#128269; Lancer le diagnostic</button>
-      <a class="btn sec" href="/api/diagnostic/download" style="text-decoration:none" title="Rapport texte complet à envoyer si tu demandes de l'aide">&#128196; Rapport</a>
+      <a class="btn sec" href="/api/diagnostic/download" style="text-decoration:none" title="Rapport texte complet à envoyer si tu demandes de l’aide">&#128196; Rapport</a>
     </h2>
     <div class="card" id="diagResult" style="display:none"></div>
 
@@ -419,19 +438,19 @@
       <table id="pusherTable">
         <thead><tr>
           <th>&Eacute;tat</th><th>#</th><th>IP</th><th>MAC</th><th>Lignes &times; pixels</th>
-          <th>Univers de d&eacute;part</th><th>Univers utilis&eacute;s &asymp;</th><th>FPS</th><th>Vu il y a</th><th>Mapp&eacute;</th>
+          <th>Univers de d&eacute;part</th><th title="Calculé avec le mode d’adressage réel du bridge (packing compris), pour des LED RGB">Univers utilis&eacute;s</th><th>FPS</th><th>Vu il y a</th><th>Mapp&eacute;</th>
         </tr></thead>
         <tbody><tr><td colspan="10" class="hint">Recherche de PixelPushers sur le r&eacute;seau&hellip; (annonce automatique sur le port 7331)</td></tr></tbody>
       </table>
     </div>
 
     <details>
-      <summary>&#128295; D&eacute;pannage : rien ne s&rsquo;allume ?</summary>
+      <summary>&#128295; D&eacute;pannage&nbsp;: rien ne s&rsquo;allume&nbsp;?</summary>
       <div class="card"><ul>
         <li><b>Aucun PixelPusher d&eacute;tect&eacute;</b> &rarr; v&eacute;rifie qu&rsquo;il est aliment&eacute;, sur le m&ecirc;me r&eacute;seau/VLAN, et que le pare-feu autorise l&rsquo;UDP entrant (port 7331).</li>
         <li><b>Pusher d&eacute;tect&eacute; mais &laquo; non mapp&eacute; &raquo;</b> &rarr; dans son fichier <code>pixel.rc</code>, <code>artnet_universe</code> et <code>artnet_channel</code> doivent &ecirc;tre &ge; 1 (0 = pas de mapping).</li>
         <li><b>Pas de donn&eacute;es DMX</b> &rarr; ta source doit envoyer vers l&rsquo;IP de cette machine (ou en broadcast) sur le port 6454. Univers Art-Net 0 de la source = univers 1 ici.</li>
-        <li><b>Mauvaises couleurs</b> &rarr; onglet Tests &rarr; &laquo; Cycle RVB &raquo; : si ROUGE ne s&rsquo;affiche pas rouge, change l&rsquo;ordre des couleurs dans Configuration.</li>
+        <li><b>Mauvaises couleurs</b> &rarr; onglet Tests &rarr; &laquo; Cycle RVB &raquo;&nbsp;: si ROUGE ne s&rsquo;affiche pas rouge, change l&rsquo;ordre des couleurs dans Configuration.</li>
         <li><b>Saccades</b> &rarr; v&eacute;rifie le FPS du pusher ci-dessus, r&eacute;duis la charge r&eacute;seau (c&acirc;ble plut&ocirc;t que WiFi), ou ajoute 1&ndash;2 ms de d&eacute;lai additionnel.</li>
       </ul></div>
     </details>
@@ -440,7 +459,7 @@
   <!-- ================= GUIDE ================= -->
   <section id="tab-guide" class="tab">
     <div class="card" style="margin-bottom:14px">
-      <b style="font-size:15px">&#128075; Bienvenue ! Ce guide t&rsquo;accompagne de z&eacute;ro jusqu&rsquo;aux LED allum&eacute;es.</b>
+      <b style="font-size:15px">&#128075; Bienvenue&nbsp;! Ce guide t&rsquo;accompagne de z&eacute;ro jusqu&rsquo;aux LED allum&eacute;es.</b>
       <div class="hint" style="margin-top:4px">PixelPusher Bridge re&ccedil;oit le signal lumi&egrave;re (Art-Net ou sACN) envoy&eacute; par ton logiciel
         (MadMapper, grandMA, Resolume, console&hellip;) et le transmet aux contr&ocirc;leurs PixelPusher qui pilotent les rubans LED.
         Il doit rester lanc&eacute; tant que les LED doivent r&eacute;pondre.</div>
@@ -451,24 +470,24 @@
       <ul style="margin:0;padding-left:20px;line-height:2">
         <li>Branche les rubans LED sur les sorties du PixelPusher (chaque sortie = une &laquo; ligne &raquo;).</li>
         <li>Relie le PixelPusher au <b>m&ecirc;me r&eacute;seau</b> que cet ordinateur (c&acirc;ble Ethernet conseill&eacute;, le WiFi peut saccader).</li>
-        <li>Sur la carte SD du pusher, le fichier <code>pixel.rc</code> d&eacute;crit tes rubans. Les lignes importantes :
+        <li>Sur la carte SD du pusher, le fichier <code>pixel.rc</code> d&eacute;crit tes rubans. Les lignes importantes&nbsp;:
           <code>strips</code> (nombre de lignes), <code>pixels</code> (LED par ligne), et surtout
           <code>artnet_universe=1</code> et <code>artnet_channel=1</code> &mdash; <b>s&rsquo;ils sont &agrave; 0, rien ne s&rsquo;allumera</b>.</li>
-        <li>Alimente le pusher : il appara&icirc;t tout seul sur le <b>Tableau de bord</b> en moins de 10 secondes.</li>
+        <li>Alimente le pusher&nbsp;: il appara&icirc;t tout seul sur le <b>Tableau de bord</b> en moins de 10 secondes.</li>
       </ul>
     </div>
 
     <h2>2&#65039;&#8419; V&eacute;rifier que le bridge le voit</h2>
     <div class="card sect">
-      <div class="hint" style="line-height:1.9">Ouvre le <a href="#" onclick="goTab('dash');return false" style="color:var(--acc2)">Tableau de bord</a> :
-      la section &laquo; Est-ce que tout marche ? &raquo; doit montrer <b>PixelPusher(s) d&eacute;tect&eacute;(s)</b> en vert,
+      <div class="hint" style="line-height:1.9">Ouvre le <a href="#" onclick="goTab('dash');return false" style="color:var(--acc2)">Tableau de bord</a>&nbsp;:
+      la section &laquo; Est-ce que tout marche&nbsp;? &raquo; doit montrer <b>PixelPusher(s) d&eacute;tect&eacute;(s)</b> en vert,
       et le tableau du bas doit afficher ton pusher <b>en ligne</b> et <b>mapp&eacute; ✅</b>.
-      Si ce n&rsquo;est pas le cas, clique <b>&#128269; Lancer le diagnostic</b> : chaque probl&egrave;me d&eacute;tect&eacute; vient avec un conseil concret.</div>
+      Si ce n&rsquo;est pas le cas, clique <b>&#128269; Lancer le diagnostic</b>&nbsp;: chaque probl&egrave;me d&eacute;tect&eacute; vient avec un conseil concret.</div>
     </div>
 
     <h2>3&#65039;&#8419; Tester les LED sans logiciel</h2>
     <div class="card sect">
-      <div class="hint" style="line-height:1.9">Onglet <a href="#" onclick="goTab('test');return false" style="color:var(--acc2)">Tests</a> :
+      <div class="hint" style="line-height:1.9">Onglet <a href="#" onclick="goTab('test');return false" style="color:var(--acc2)">Tests</a>&nbsp;:
       active le mode test et essaie <b>Blanc 100 %</b> (tout doit s&rsquo;allumer), puis <b>Cycle RVB</b> &mdash; quand l&rsquo;&eacute;cran dit ROUGE,
       les LED doivent &ecirc;tre rouges. Si elles sont vertes ou bleues, va dans Configuration &rarr; <b>Ordre des couleurs</b> et change-le
       jusqu&rsquo;&agrave; ce que &ccedil;a corresponde (&ccedil;a s&rsquo;applique instantan&eacute;ment).
@@ -479,8 +498,8 @@
     <h2>4&#65039;&#8419; Configurer ton logiciel lumi&egrave;re</h2>
     <div class="card sect">
       <ul style="margin:0;padding-left:20px;line-height:2">
-        <li>Protocole : <b>Art-Net</b> (ou sACN), destination : <b>l&rsquo;adresse IP de cet ordinateur</b> (ou broadcast), port 6454 (standard).</li>
-        <li>&#9888; D&eacute;calage classique : l&rsquo;<b>univers 0</b> c&ocirc;t&eacute; logiciel correspond &agrave; l&rsquo;<b>univers 1</b> ici.</li>
+        <li>Protocole&nbsp;: <b>Art-Net</b> (ou sACN), destination&nbsp;: <b>l&rsquo;adresse IP de cet ordinateur</b> (ou broadcast), port 6454 (standard).</li>
+        <li>&#9888; D&eacute;calage classique&nbsp;: l&rsquo;<b>univers 0</b> c&ocirc;t&eacute; logiciel correspond &agrave; l&rsquo;<b>univers 1</b> ici.</li>
         <li>L&rsquo;onglet <a href="#" onclick="goTab('calc');return false" style="color:var(--acc2)">Adressage DMX</a> te calcule
           la map compl&egrave;te (quel univers/canal pour chaque barre) &agrave; reporter dans ton logiciel.</li>
         <li>D&egrave;s que ta source &eacute;met, le Tableau de bord montre les paquets re&ccedil;us et les univers actifs.
@@ -491,12 +510,29 @@
     <h2>5&#65039;&#8419; En spectacle / installation</h2>
     <div class="card sect">
       <ul style="margin:0;padding-left:20px;line-height:2">
-        <li><b>Watchdog de signal</b> (Configuration &rarr; S&eacute;curit&eacute; spectacle) : si ta source plante, les LED s&rsquo;&eacute;teignent au lieu de rester fig&eacute;es. Conseill&eacute; : 5&ndash;30 s.</li>
-        <li><b>Presets</b> : sauvegarde une config par salle/spectacle et recharge-la en un clic.</li>
-        <li><b>S&eacute;quences</b> : enregistre ce que ta console envoie, puis rejoue-le en boucle &mdash; l&rsquo;installation tourne sans console ni logiciel.</li>
-        <li><b>T&eacute;l&eacute;phone</b> : scanne le QR code du Tableau de bord avec l&rsquo;appareil photo &mdash; blackout, luminosit&eacute; et tests dans la poche, sans rien taper.</li>
+        <li><b>Watchdog de signal</b> (Configuration &rarr; S&eacute;curit&eacute; spectacle)&nbsp;: si ta source plante, les LED s&rsquo;&eacute;teignent au lieu de rester fig&eacute;es. Conseill&eacute;&nbsp;: 5&ndash;30 s.</li>
+        <li><b>Presets</b>&nbsp;: sauvegarde une config par salle/spectacle et recharge-la en un clic.</li>
+        <li><b>S&eacute;quences</b>&nbsp;: enregistre ce que ta console envoie, puis rejoue-le en boucle &mdash; l&rsquo;installation tourne sans console ni logiciel.</li>
+        <li><b>T&eacute;l&eacute;phone</b>&nbsp;: scanne le QR code du Tableau de bord avec l&rsquo;appareil photo &mdash; blackout, luminosit&eacute; et tests dans la poche, sans rien taper.</li>
         <li>Le bouton <b>&#9899; Blackout</b> (en haut) &eacute;teint tout imm&eacute;diatement, &agrave; tout moment.</li>
       </ul>
+    </div>
+
+    <h2>&#128218; Le vocabulaire en 8 mots</h2>
+    <div class="card sect">
+      <table>
+        <thead><tr><th>Mot</th><th>Ce que &ccedil;a veut dire ici</th></tr></thead>
+        <tbody>
+          <tr><td><b>Univers</b></td><td>Un bloc de 512 canaux DMX. Une LED RGB en occupe 3, donc 170 LED tiennent dans un univers.</td></tr>
+          <tr><td><b>Canal</b> (ou adresse)</td><td>Une case dans l&rsquo;univers, de 1 &agrave; 512. Elle porte une valeur de 0 &agrave; 255&nbsp;: par exemple le rouge d&rsquo;une LED.</td></tr>
+          <tr><td><b>Ligne</b></td><td>Une sortie du PixelPusher, sur laquelle est branch&eacute; un ruban. Le pusher de l&rsquo;exemple en a 8.</td></tr>
+          <tr><td><b>Barre</b></td><td>Un morceau de ruban physique. Plusieurs barres peuvent se suivre sur une m&ecirc;me ligne.</td></tr>
+          <tr><td><b>Mapping</b></td><td>La correspondance &laquo;&nbsp;tel canal DMX pilote telle LED&nbsp;&raquo;. Le bridge la calcule tout seul.</td></tr>
+          <tr><td><b>Packing</b></td><td>Remplir chaque univers au maximum avant de passer au suivant. D&eacute;sactiv&eacute;, chaque ligne d&eacute;marre sur un univers neuf&nbsp;: plus lisible, mais plus d&rsquo;univers.</td></tr>
+          <tr><td><b>Blackout</b></td><td>Tout &eacute;teindre imm&eacute;diatement. Ici c&rsquo;est un &eacute;tat verrouill&eacute;&nbsp;: le flux entrant est ignor&eacute; tant que tu n&rsquo;as pas repris la main.</td></tr>
+          <tr><td><b>Watchdog</b></td><td>Litt&eacute;ralement &laquo;&nbsp;chien de garde&nbsp;&raquo;. Si la source arr&ecirc;te d&rsquo;&eacute;mettre, il &eacute;teint les LED au lieu de les laisser fig&eacute;es sur la derni&egrave;re image.</td></tr>
+        </tbody>
+      </table>
     </div>
 
     <h2>&#10067; Probl&egrave;mes courants</h2>
@@ -508,11 +544,11 @@
           <tr><td>D&eacute;tect&eacute; mais &laquo; non mapp&eacute; &raquo;</td><td><code>artnet_universe</code> / <code>artnet_channel</code> &agrave; 0 dans <code>pixel.rc</code> &rarr; mets 1 (ou plus) et red&eacute;marre le pusher.</td></tr>
           <tr><td>Donn&eacute;es re&ccedil;ues mais rien ne s&rsquo;allume</td><td>Mauvais univers c&ocirc;t&eacute; source (d&eacute;calage 0/1), ou univers re&ccedil;us &ne; univers mapp&eacute;s &rarr; lance le diagnostic, il le d&eacute;tecte.</td></tr>
           <tr><td>Mauvaises couleurs</td><td>Ordre des couleurs &rarr; test Cycle RVB + Configuration.</td></tr>
-          <tr><td>Saccades</td><td>WiFi ou r&eacute;seau charg&eacute; &rarr; c&acirc;ble Ethernet ; sinon +1&ndash;2 ms de d&eacute;lai additionnel, ou active l&rsquo;auto-throttle.</td></tr>
-          <tr><td>Image fig&eacute;e apr&egrave;s fermeture</td><td>Normal : les LED gardent la derni&egrave;re trame. Active &laquo; Blackout &agrave; l&rsquo;arr&ecirc;t &raquo; ou utilise le bouton Blackout.</td></tr>
+          <tr><td>Saccades</td><td>WiFi ou r&eacute;seau charg&eacute; &rarr; c&acirc;ble Ethernet&nbsp;; sinon +1&ndash;2 ms de d&eacute;lai additionnel, ou active l&rsquo;auto-throttle.</td></tr>
+          <tr><td>Image fig&eacute;e apr&egrave;s fermeture</td><td>Normal&nbsp;: les LED gardent la derni&egrave;re trame. Active &laquo; Blackout &agrave; l&rsquo;arr&ecirc;t &raquo; ou utilise le bouton Blackout.</td></tr>
         </tbody>
       </table>
-      <div class="hint" style="margin-top:10px">Toujours bloqu&eacute; ? Tableau de bord &rarr; <b>&#128196; Rapport</b> : t&eacute;l&eacute;charge le rapport de diagnostic complet, il contient tout ce qu&rsquo;il faut pour se faire aider.</div>
+      <div class="hint" style="margin-top:10px">Toujours bloqu&eacute;&nbsp;? Tableau de bord &rarr; <b>&#128196; Rapport</b>&nbsp;: t&eacute;l&eacute;charge le rapport de diagnostic complet, il contient tout ce qu&rsquo;il faut pour se faire aider.</div>
     </div>
   </section>
 
@@ -532,16 +568,16 @@
 
     <h2><span class="ic">&#127916;</span> Sc&eacute;narios</h2>
     <div class="patterns" id="patternGrid">
-      <div class="pat sel" data-p="solid"><div class="ico">&#9632;</div><div class="n">Couleur unie</div><div class="d">Toutes les LED dans la couleur choisie</div></div>
-      <div class="pat" data-p="white"><div class="ico">&#9728;</div><div class="n">Blanc 100 %</div><div class="d">Test de puissance max &amp; alimentation</div></div>
-      <div class="pat" data-p="rgbcycle"><div class="ico">&#127752;</div><div class="n">Cycle RVB</div><div class="d">Rouge &rarr; vert &rarr; bleu &rarr; blanc : v&eacute;rifie l&rsquo;ordre des couleurs</div></div>
-      <div class="pat" data-p="gradient"><div class="ico">&#9698;</div><div class="n">D&eacute;grad&eacute;</div><div class="d">Sombre &rarr; vif le long de la ligne : v&eacute;rifie le sens</div></div>
-      <div class="pat" data-p="rainbow"><div class="ico">&#10024;</div><div class="n">Arc-en-ciel</div><div class="d">Animation fluide : test visuel de fluidit&eacute;</div></div>
-      <div class="pat" data-p="chase"><div class="ico">&#10148;</div><div class="n">Chenillard</div><div class="d">Point lumineux : rep&egrave;re les pixels morts</div></div>
-      <div class="pat" data-p="strips"><div class="ico">&#9776;</div><div class="n">1 couleur / ligne</div><div class="d">L1 rouge, L2 vert, L3 bleu&hellip; : v&eacute;rifie le c&acirc;blage</div></div>
-      <div class="pat" data-p="lineseq"><div class="ico">&#8645;</div><div class="n">S&eacute;quence lignes</div><div class="d">Allume les lignes une par une automatiquement</div></div>
-      <div class="pat" data-p="pusherseq"><div class="ico">&#128260;</div><div class="n">S&eacute;quence pushers</div><div class="d">Allume les pushers un par un (toutes leurs lignes)</div></div>
-      <div class="pat" data-p="blackout"><div class="ico">&#9899;</div><div class="n">Noir total</div><div class="d">Tout &eacute;teint</div></div>
+      <button type="button" class="pat sel" data-p="solid" aria-pressed="true"><div class="ico">&#9632;</div><div class="n">Couleur unie</div><div class="d">Toutes les LED dans la couleur choisie</div></button>
+      <button type="button" class="pat" data-p="white" aria-pressed="false"><div class="ico">&#9728;</div><div class="n">Blanc 100 %</div><div class="d">Test de puissance max &amp; alimentation</div></button>
+      <button type="button" class="pat" data-p="rgbcycle" aria-pressed="false"><div class="ico">&#127752;</div><div class="n">Cycle RVB</div><div class="d">Rouge &rarr; vert &rarr; bleu &rarr; blanc&nbsp;: v&eacute;rifie l&rsquo;ordre des couleurs</div></button>
+      <button type="button" class="pat" data-p="gradient" aria-pressed="false"><div class="ico">&#9698;</div><div class="n">D&eacute;grad&eacute;</div><div class="d">Sombre &rarr; vif le long de la ligne&nbsp;: v&eacute;rifie le sens</div></button>
+      <button type="button" class="pat" data-p="rainbow" aria-pressed="false"><div class="ico">&#10024;</div><div class="n">Arc-en-ciel</div><div class="d">Animation fluide&nbsp;: test visuel de fluidit&eacute;</div></button>
+      <button type="button" class="pat" data-p="chase" aria-pressed="false"><div class="ico">&#10148;</div><div class="n">Chenillard</div><div class="d">Point lumineux&nbsp;: rep&egrave;re les pixels morts</div></button>
+      <button type="button" class="pat" data-p="strips" aria-pressed="false"><div class="ico">&#9776;</div><div class="n">1 couleur / ligne</div><div class="d">L1 rouge, L2 vert, L3 bleu&hellip;&nbsp;: v&eacute;rifie le c&acirc;blage</div></button>
+      <button type="button" class="pat" data-p="lineseq" aria-pressed="false"><div class="ico">&#8645;</div><div class="n">S&eacute;quence lignes</div><div class="d">Allume les lignes une par une automatiquement</div></button>
+      <button type="button" class="pat" data-p="pusherseq" aria-pressed="false"><div class="ico">&#128260;</div><div class="n">S&eacute;quence pushers</div><div class="d">Allume les pushers un par un (toutes leurs lignes)</div></button>
+      <button type="button" class="pat" data-p="blackout" aria-pressed="false"><div class="ico">&#9899;</div><div class="n">Noir total</div><div class="d">Tout &eacute;teint</div></button>
     </div>
 
     <div class="card">
@@ -565,7 +601,7 @@
   <section id="tab-seq" class="tab">
     <div class="card">
       <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap">
-        <button id="recBtn" class="recbtn" title="Démarrer / arrêter l'enregistrement"></button>
+        <button id="recBtn" class="recbtn" title="Démarrer / arrêter l’enregistrement"></button>
         <div style="flex:1;min-width:240px">
           <b>Enregistrer une s&eacute;quence</b>
           <div class="hint">Capture tout ce que ta console/logiciel envoie (tous les univers, timing exact).
@@ -574,7 +610,7 @@
         </div>
         <label style="display:flex;flex-direction:column;gap:5px;font-size:12.5px;color:var(--muted)">
           Nom de la s&eacute;quence
-          <input type="text" id="recName" placeholder="ex : Intro spectacle" maxlength="40">
+          <input type="text" id="recName" placeholder="ex&nbsp;: Intro spectacle" maxlength="40">
         </label>
       </div>
     </div>
@@ -583,14 +619,14 @@
     <div class="card reclist" id="recList"><span class="hint">Aucune s&eacute;quence pour l&rsquo;instant.</span></div>
     <p class="hint">La lecture rejoue la s&eacute;quence avec son timing d&rsquo;origine et coupe le flux Art-Net entrant
       (r&eacute;tabli automatiquement &agrave; la fin). En boucle, id&eacute;al pour une installation autonome sans console.
-      Fichiers : <code>~/.pixelpusherbridge/recordings/</code>.</p>
+      Fichiers&nbsp;: <code>~/.pixelpusherbridge/recordings/</code>.</p>
   </section>
 
   <!-- ================= ADRESSAGE DMX ================= -->
   <section id="tab-calc" class="tab">
     <div class="card">
       <b>Calculateur d&rsquo;adressage DMX</b>
-      <div class="hint" style="margin-top:4px">Reproduit exactement la logique de mapping du bridge :
+      <div class="hint" style="margin-top:4px">Reproduit exactement la logique de mapping du bridge&nbsp;:
         les canaux d&rsquo;une LED ne sont jamais &agrave; cheval sur deux univers, passage &agrave; l&rsquo;univers suivant
         quand il ne reste plus assez de canaux (170 LED RGB max par univers de 512 canaux).</div>
       <div class="calcgrid" style="margin-top:16px">
@@ -621,7 +657,7 @@
         <button class="btn" onclick="calcRun()">Calculer</button>
       </div>
       <div id="manualStarts" style="display:none;margin-top:12px">
-        <div class="hint" style="margin-bottom:4px">Adresse de d&eacute;but de chaque ligne :</div>
+        <div class="hint" style="margin-bottom:4px">Adresse de d&eacute;but de chaque ligne&nbsp;:</div>
       </div>
     </div>
 
@@ -650,9 +686,11 @@
       <button class="btn sec" type="button" id="presetLoadBtn">Charger</button>
       <button class="btn danger" type="button" id="presetDelBtn">Supprimer</button>
       <span style="width:1px;height:26px;background:var(--border)"></span>
-      <input type="text" id="presetName" placeholder="Nom du nouveau preset" maxlength="40">
+      <input type="text" id="presetName" placeholder="Nom du nouveau preset" maxlength="40"
+        aria-label="Nom du nouveau preset" title="Lettres, chiffres, espaces, tirets, soulignés et parenthèses (40 caractères max)">
       <button class="btn okb" type="button" id="presetSaveBtn">&#128190; Enregistrer la config actuelle</button>
-      <div class="hint" style="flex-basis:100%">Un preset photographie TOUTE la configuration ci-dessous. Charger un preset l&rsquo;applique imm&eacute;diatement (remappage &agrave; chaud inclus).</div>
+      <div class="hint" style="flex-basis:100%">Un preset photographie TOUTE la configuration ci-dessous. Charger un preset l&rsquo;applique imm&eacute;diatement (remappage &agrave; chaud inclus).
+        Nom&nbsp;: lettres, chiffres, espaces, tirets, soulign&eacute;s et parenth&egrave;ses, 40 caract&egrave;res maximum &mdash; les autres caract&egrave;res sont retir&eacute;s.</div>
     </div>
 
     <h2><span class="ic">&#127912;</span> Mapping Art-Net</h2>
@@ -669,9 +707,9 @@
         <div class="name">Packing des univers<small>Remplissage maximal des univers DMX</small></div>
         <div class="adv">
           <label class="switch"><input type="checkbox" id="c_packing"><span class="sl"></span></label>
-          <span class="badge">Conseill&eacute; : activ&eacute;</span>
+          <span class="badge">Conseill&eacute;&nbsp;: activ&eacute;</span>
         </div>
-        <div class="hint">Activ&eacute; : chaque univers est rempli au maximum (170 pixels RGB par univers de 512 canaux). D&eacute;sactiv&eacute; : chaque ligne d&eacute;marre sur un nouvel univers &mdash; mapping plus lisible mais plus d&rsquo;univers utilis&eacute;s. L&rsquo;onglet &laquo; Adressage DMX &raquo; calcule la map exacte.</div>
+        <div class="hint">Activ&eacute;&nbsp;: chaque univers est rempli au maximum (170 pixels RGB par univers de 512 canaux). D&eacute;sactiv&eacute;&nbsp;: chaque ligne d&eacute;marre sur un nouvel univers &mdash; mapping plus lisible mais plus d&rsquo;univers utilis&eacute;s. L&rsquo;onglet &laquo; Adressage DMX &raquo; calcule la map exacte.</div>
       </div>
       <div class="row">
         <div class="name">R&eacute;ception sACN (E1.31)<small>En plus de l&rsquo;Art-Net</small></div>
@@ -689,15 +727,15 @@
         <div class="name">Limite de trames<small>Fr&eacute;quence max d&rsquo;envoi vers les pushers</small></div>
         <div class="adv">
           <input type="number" id="c_frameLimit" min="1" max="1000">
-          <span class="badge">Conseill&eacute; : 60&ndash;85 Hz</span>
+          <span class="badge">Conseill&eacute;&nbsp;: 60&ndash;85 Hz</span>
         </div>
-        <div class="hint">85 Hz par d&eacute;faut. Les sources Art-Net envoient g&eacute;n&eacute;ralement 40&ndash;44 Hz : la limite ne doit juste pas &ecirc;tre plus basse que ta source. Au-del&agrave; de la capacit&eacute; r&eacute;elle du pusher, les trames en trop sont simplement ignor&eacute;es.</div>
+        <div class="hint">85 Hz par d&eacute;faut. Les sources Art-Net envoient g&eacute;n&eacute;ralement 40&ndash;44 Hz&nbsp;: la limite ne doit juste pas &ecirc;tre plus basse que ta source. Au-del&agrave; de la capacit&eacute; r&eacute;elle du pusher, les trames en trop sont simplement ignor&eacute;es.</div>
       </div>
       <div class="row">
         <div class="name">D&eacute;lai additionnel<small>Pause entre les paquets envoy&eacute;s</small></div>
         <div class="adv">
           <input type="number" id="c_extraDelayMs" min="0" max="1000">
-          <span class="badge">Conseill&eacute; : 0 ms</span>
+          <span class="badge">Conseill&eacute;&nbsp;: 0 ms</span>
         </div>
         <div class="hint">0 = fluidit&eacute; et latence maximales. Monte &agrave; 1&ndash;5 ms uniquement si le r&eacute;seau sature (WiFi, switch charg&eacute;, pertes de paquets). Au-del&agrave; de 10 ms le framerate chute visiblement.</div>
       </div>
@@ -705,15 +743,15 @@
         <div class="name">Auto-throttle<small>Ralentissement automatique</small></div>
         <div class="adv">
           <label class="switch"><input type="checkbox" id="c_autoThrottle"><span class="sl"></span></label>
-          <span class="badge">Conseill&eacute; : d&eacute;sactiv&eacute;</span>
+          <span class="badge">Conseill&eacute;&nbsp;: d&eacute;sactiv&eacute;</span>
         </div>
-        <div class="hint">Ralentit l&rsquo;envoi si un pusher signale qu&rsquo;il est d&eacute;bord&eacute;. Laisse d&eacute;sactiv&eacute; pour une latence minimale ; active-le seulement si tu constates des d&eacute;crochages avec beaucoup de pixels.</div>
+        <div class="hint">Ralentit l&rsquo;envoi si un pusher signale qu&rsquo;il est d&eacute;bord&eacute;. Laisse d&eacute;sactiv&eacute; pour une latence minimale&nbsp;; active-le seulement si tu constates des d&eacute;crochages avec beaucoup de pixels.</div>
       </div>
       <div class="row">
         <div class="name">Luminosit&eacute; globale<small>&Eacute;chelle appliqu&eacute;e &agrave; toutes les LED</small></div>
         <div class="adv">
           <span><input type="range" id="c_brightness" min="1" max="100" value="100"> <span class="val" id="c_brightnessVal">100&nbsp;%</span></span>
-          <span class="badge">Conseill&eacute; : 100 %</span>
+          <span class="badge">Conseill&eacute;&nbsp;: 100 %</span>
         </div>
         <div class="hint">R&eacute;duis pour limiter la consommation &eacute;lectrique et l&rsquo;&eacute;chauffement des strips (utile en fixe ou si l&rsquo;alim est juste).</div>
       </div>
@@ -745,7 +783,7 @@
           <span><input type="number" id="c_powerLimitAmps" min="0" max="2000" step="0.5"> A</span>
           <span class="badge">0 = aucune limite</span>
         </div>
-        <div class="hint">Quand la consommation demand&eacute;e d&eacute;passe cette valeur, le bridge <b>att&eacute;nue proportionnellement toutes les LED</b> pour rester dessous, au lieu de laisser l&rsquo;alimentation s&rsquo;effondrer (chute de tension, couleurs qui virent au rose, protection qui coupe en plein spectacle). Mets la valeur de ton alimentation avec une marge : par exemple <b>24&nbsp;A</b> pour une alim 5&nbsp;V / 30&nbsp;A. Fonctionne seulement si tes pushers annoncent leur consommation ; le diagnostic te le dira.</div>
+        <div class="hint">Quand la consommation demand&eacute;e d&eacute;passe cette valeur, le bridge <b>att&eacute;nue proportionnellement toutes les LED</b> pour rester dessous, au lieu de laisser l&rsquo;alimentation s&rsquo;effondrer (chute de tension, couleurs qui virent au rose, protection qui coupe en plein spectacle). Mets la valeur de ton alimentation avec une marge&nbsp;: par exemple <b>24&nbsp;A</b> pour une alim 5&nbsp;V / 30&nbsp;A. Fonctionne seulement si tes pushers annoncent leur consommation&nbsp;; le diagnostic te le dira.</div>
       </div>
       <div class="row">
         <div class="name">Consommation par canal<small>Caract&eacute;ristique de tes rubans</small></div>
@@ -753,7 +791,7 @@
           <span><input type="number" id="c_milliampsPerChannel" min="1" max="200" step="1"> mA</span>
           <span class="badge">20 mA pour WS2812 / APA102</span>
         </div>
-        <div class="hint">Courant consomm&eacute; par <b>un canal de couleur allum&eacute; &agrave; fond</b>. 20&nbsp;mA est la valeur des rubans les plus courants : un pixel RGB en blanc plein consomme alors ~60&nbsp;mA. Ne sert qu&rsquo;&agrave; convertir la limite ci-dessus dans l&rsquo;unit&eacute; interne. Si tu ne sais pas, laisse 20.</div>
+        <div class="hint">Courant consomm&eacute; par <b>un canal de couleur allum&eacute; &agrave; fond</b>. 20&nbsp;mA est la valeur des rubans les plus courants&nbsp;: un pixel RGB en blanc plein consomme alors ~60&nbsp;mA. Ne sert qu&rsquo;&agrave; convertir la limite ci-dessus dans l&rsquo;unit&eacute; interne. Si tu ne sais pas, laisse 20.</div>
       </div>
     </div>
 
@@ -763,7 +801,7 @@
         <div class="name">Watchdog de signal<small>Blackout auto si la source coupe</small></div>
         <div class="adv">
           <span><input type="number" id="c_watchdogSec" min="0" max="300"> s</span>
-          <span class="badge">Conseill&eacute; : 5&ndash;30 s en spectacle, 0 = off</span>
+          <span class="badge">Conseill&eacute;&nbsp;: 5&ndash;30 s en spectacle, 0 = off</span>
         </div>
         <div class="hint">Si aucune donn&eacute;e DMX n&rsquo;arrive pendant ce d&eacute;lai, les LED sont &eacute;teintes automatiquement (au lieu de rester fig&eacute;es sur la derni&egrave;re image). Se r&eacute;arme tout seul au retour du signal. 0 pour d&eacute;sactiver. Inactif pendant les tests et la lecture de s&eacute;quence.</div>
       </div>
@@ -771,7 +809,7 @@
         <div class="name">Blackout &agrave; l&rsquo;arr&ecirc;t<small>Quand on ferme le bridge</small></div>
         <div class="adv">
           <label class="switch"><input type="checkbox" id="c_blackoutOnExit"><span class="sl"></span></label>
-          <span class="badge">Conseill&eacute; : activ&eacute;</span>
+          <span class="badge">Conseill&eacute;&nbsp;: activ&eacute;</span>
         </div>
         <div class="hint">&Eacute;teint les LED proprement quand tu arr&ecirc;tes ou red&eacute;marres le bridge depuis l&rsquo;interface. Sinon la derni&egrave;re image reste affich&eacute;e.</div>
       </div>
@@ -779,7 +817,7 @@
         <div class="name">Expiration des pushers<small>Oubli apr&egrave;s 10 s de silence</small></div>
         <div class="adv">
           <label class="switch"><input type="checkbox" id="c_expiryEnabled"><span class="sl"></span></label>
-          <span class="badge">Conseill&eacute; : activ&eacute;</span>
+          <span class="badge">Conseill&eacute;&nbsp;: activ&eacute;</span>
         </div>
         <div class="hint">Un pusher qui ne s&rsquo;annonce plus pendant 10 s est retir&eacute; de la liste (et re-d&eacute;tect&eacute; automatiquement &agrave; son retour). D&eacute;sactive uniquement pour d&eacute;bugger un r&eacute;seau tr&egrave;s instable.</div>
       </div>
@@ -791,7 +829,7 @@
         <div class="name">Port de l&rsquo;interface web<small>Cette page</small></div>
         <div class="adv">
           <input type="number" id="c_webPort" min="1024" max="65535">
-          <span class="badge">Conseill&eacute; : 7350 &middot; red&eacute;marrage requis</span>
+          <span class="badge">Conseill&eacute;&nbsp;: 7350 &middot; red&eacute;marrage requis</span>
         </div>
         <div class="hint">&Eacute;vite 5568 (sACN), 6454 (Art-Net) et 7331 (discovery PixelPusher), d&eacute;j&agrave; utilis&eacute;s. Si le port est occup&eacute;, le bridge essaie automatiquement les 10 suivants.</div>
       </div>
@@ -799,7 +837,7 @@
         <div class="name">Logs Art-Net d&eacute;taill&eacute;s<small>Debug</small></div>
         <div class="adv">
           <label class="switch"><input type="checkbox" id="c_debug"><span class="sl"></span></label>
-          <span class="badge">Conseill&eacute; : d&eacute;sactiv&eacute;</span>
+          <span class="badge">Conseill&eacute;&nbsp;: d&eacute;sactiv&eacute;</span>
         </div>
         <div class="hint">Ajoute un message tous les 100 paquets Art-Net re&ccedil;us. Utile ponctuellement, verbeux &agrave; la longue.</div>
       </div>
@@ -828,17 +866,18 @@
   <!-- ================= LOGS ================= -->
   <section id="tab-logs" class="tab">
     <div class="toolbar">
-      <div class="fchip on" data-lvl="INFO"><span class="cdot" style="background:#aebacc"></span>Info</div>
-      <div class="fchip on" data-lvl="WARN"><span class="cdot" style="background:var(--warn)"></span>Avertissements</div>
-      <div class="fchip on" data-lvl="ERROR"><span class="cdot" style="background:var(--err)"></span>Erreurs</div>
-      <input type="search" id="logSearch" placeholder="Filtrer&hellip;" style="width:170px">
+      <button type="button" class="fchip on" data-lvl="INFO" aria-pressed="true"><span class="cdot" style="background:#aebacc"></span>Info</button>
+      <button type="button" class="fchip on" data-lvl="WARN" aria-pressed="true"><span class="cdot" style="background:var(--warn)"></span>Avertissements</button>
+      <button type="button" class="fchip on" data-lvl="ERROR" aria-pressed="true"><span class="cdot" style="background:var(--err)"></span>Erreurs</button>
+      <input type="search" id="logSearch" placeholder="Filtrer&hellip;" aria-label="Filtrer les lignes du journal" style="width:170px">
+      <span class="hint" id="logHidden"></span>
       <div class="hspacer"></div>
-      <label class="fchip on" id="autoScrollChip">D&eacute;filement auto</label>
-      <button class="btn sec" onclick="clearLogsLocal()">Vider</button>
+      <button type="button" class="fchip on" id="autoScrollChip" aria-pressed="true">D&eacute;filement auto</button>
+      <button class="btn sec" type="button" onclick="clearLogsAsk()" title="Efface aussi l’historique gardé en mémoire par le bridge">Effacer le journal</button>
       <a class="btn sec" href="/api/logs/download" style="text-decoration:none">T&eacute;l&eacute;charger</a>
     </div>
     <div id="logView"></div>
-    <p class="hint" style="margin-top:8px">Journal complet persistant : <code>~/.pixelpusherbridge/bridge.log</code> (rotation automatique &agrave; 5 Mo).</p>
+    <p class="hint" style="margin-top:8px">Journal complet persistant&nbsp;: <code>~/.pixelpusherbridge/bridge.log</code> (rotation automatique &agrave; 5 Mo).</p>
   </section>
 </main>
 
@@ -870,12 +909,19 @@
 function $(id){return document.getElementById(id);}
 /* Le serveur signale ses refus par un code HTTP et/ou "ok":false. Sans ce
    contrôle, l'interface affichait un toast de succès vert alors que le bridge
-   venait de rejeter la demande — le pire des retours possibles. */
+   venait de rejeter la demande — le pire des retours possibles.
+   Le refus est marqué (duBridge) pour être distingué d'une panne réseau : le
+   navigateur, lui, rejette avec un message anglais et technique
+   (« Failed to fetch ») qui n'a rien à faire devant un opérateur en régie. */
 function post(url, data){
   return fetch(url,{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},
     body:new URLSearchParams(data).toString()}).then(function(r){
       return r.json().catch(function(){return {};}).then(function(j){
-        if(!r.ok||j.ok===false)throw new Error(j.error||("Le bridge a refusé la demande (HTTP "+r.status+")"));
+        if(!r.ok||j.ok===false){
+          var err=new Error(j.error||("Le bridge a refusé la demande (HTTP "+r.status+")"));
+          err.duBridge=true;
+          throw err;
+        }
         return j;
       });
     });
@@ -883,18 +929,42 @@ function post(url, data){
 function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
 
 /* ---------- onglets ---------- */
+/* Les flux coûteux (SSE des logs, poll du moniteur DMX) ne tournent que dans
+   l'onglet qui les affiche : un EventSource ouvert en permanence consomme une
+   des 6 connexions HTTP/1.1 du navigateur, et le moniteur interrogeait le
+   bridge 4 fois par seconde pour un canvas invisible. */
+var ongletActif="dash";
 function goTab(name){
+  ongletActif=name;
   document.querySelectorAll("nav button").forEach(function(x){
     x.classList.toggle("active",x.dataset.tab===name);
   });
   document.querySelectorAll(".tab").forEach(function(x){x.classList.remove("active");});
   $("tab-"+name).classList.add("active");
   window.scrollTo(0,0);
+  majFluxOnglet();
 }
+/* Décide, selon l'onglet courant et la visibilité de la page, quels flux
+   doivent tourner. Appelée à chaque changement d'onglet et de visibilité. */
+function majFluxOnglet(){
+  var visible=(document.visibilityState!=="hidden");
+  dmxSetActive(visible&&ongletActif==="dash");
+  sseSetActive(visible&&ongletActif==="logs");
+}
+document.addEventListener("visibilitychange",majFluxOnglet);
 document.querySelectorAll("nav button").forEach(function(b){
   b.addEventListener("click",function(){goTab(b.dataset.tab);});
 });
-$("tErrCard").addEventListener("click",function(){goTab("logs");});
+/* La tuile Erreurs et l'adresse LAN sont des éléments cliquables : sans
+   tabindex ni gestion d'Entrée/Espace, elles étaient invisibles au clavier. */
+function activableClavier(el,action){
+  if(!el)return;
+  el.addEventListener("click",action);
+  el.addEventListener("keydown",function(e){
+    if(e.key==="Enter"||e.key===" "||e.key==="Spacebar"){e.preventDefault();action.call(el,e);}
+  });
+}
+activableClavier($("tErrCard"),function(){goTab("logs");});
 
 /* ---------- toasts / modal / overlay ---------- */
 function toast(msg, kind){
@@ -932,20 +1002,20 @@ function overlay(msg){$("overlayMsg").textContent=msg;$("overlay").classList.add
 /* ---------- actions bridge ---------- */
 function quickBlackout(){
   post("/api/action",{action:"blackout"}).then(function(){
-    toast("BLACKOUT actif — le flux entrant est ignoré jusqu'à la reprise.","warn");
+    toast("BLACKOUT actif — le flux entrant est ignoré jusqu’à la reprise.","warn");
     refreshStatus();
-  }).catch(function(){toast("Bridge injoignable","err");});
+  }).catch(echec);
 }
 function resumeFromBlackout(){
   post("/api/action",{action:"resume"}).then(function(){
     toast("Blackout levé — la console reprend la main ✓");
     refreshStatus();
-  }).catch(function(){toast("Bridge injoignable","err");});
+  }).catch(echec);
 }
 function confirmStop(){
   openModal("Arrêter le bridge ?",
     "Le flux Art-Net → PixelPusher sera interrompu et cette page ne répondra plus. "+
-    "Pour relancer : rouvre l'application.",
+    "Pour relancer : rouvre l’application.",
     "Arrêter",function(){
       post("/api/action",{action:"stop"}).catch(function(){});
       overlay("Bridge arrêté. Tu peux fermer cette page.");
@@ -953,18 +1023,53 @@ function confirmStop(){
 }
 function confirmRestart(){
   openModal("Redémarrer le bridge ?",
-    "Coupure d'environ 3 secondes, puis tout redémarre automatiquement (utile après un changement de port ou pour activer le sACN).",
+    "Coupure d’environ 3 secondes, puis tout redémarre automatiquement (utile après un changement de port ou pour activer le sACN).",
     "Redémarrer",function(){
+      /* Deux pièges évités ici.
+         1) On mémorise l'uptime AVANT l'arrêt : la condition « uptime < 30 s »
+            était déjà vraie pour l'ANCIENNE instance quand on redémarrait dans
+            la première demi-minute, et la page se rechargeait sur un bridge en
+            train de mourir.
+         2) Le motif le plus courant de redémarrage est justement un changement
+            de port : recharger la même URL menait sur un port définitivement
+            mort, sans jamais dire où était passé le bridge. */
+      var avant=derniereUptime;
+      var portActuel=location.port||(location.protocol==="https:"?"443":"80");
+      var portCible=cfgWebPort?String(cfgWebPort):"";
+      var changePort=(portCible!==""&&portCible!==String(portActuel));
+      var urlCible=location.protocol+"//"+location.hostname+":"+portCible+"/";
       post("/api/action",{action:"restart"}).catch(function(){});
-      overlay("Redémarrage en cours…");
+      overlay(changePort
+        ? "Redémarrage en cours… le bridge repassera sur le port "+portCible+"."
+        : "Redémarrage en cours…");
       var tries=0;
       var iv=setInterval(function(){
         tries++;
+        /* On sonde TOUJOURS l'adresse courante en premier : elle peut rester
+           valable alors que le port configuré diffère (l'URL courte du port 80,
+           ou un port qui a glissé parce que le port demandé était occupé).
+           Basculer d'office sur le port cible renvoyait ces cas-là vers une
+           adresse morte. */
         fetch("/api/status",{cache:"no-store"}).then(function(r){return r.json();}).then(function(s){
-          if(s && s.uptimeSec < 30){clearInterval(iv);location.reload();}
+          var seuil=avant>0?avant:30;
+          if(s&&s.uptimeSec<seuil){clearInterval(iv);location.reload();}
         }).catch(function(){});
-        if(tries>40){clearInterval(iv);$("overlayMsg").textContent=
-          "Le bridge ne répond pas. Vérifie qu'il a bien redémarré, puis recharge la page.";}
+        /* Le port a changé et l'adresse courante ne revient pas : on sonde le
+           nouveau port. Autre origine = requête refusée par la politique du
+           navigateur, donc mode no-cors : la réponse est opaque, mais la
+           promesse n'aboutit que si le serveur a répondu — c'est tout ce qu'on
+           cherche à savoir. */
+        if(changePort&&tries>4){
+          fetch(urlCible+"api/status",{mode:"no-cors",cache:"no-store"}).then(function(){
+            clearInterval(iv);location.href=urlCible;
+          }).catch(function(){});
+        }
+        if(tries>40){
+          clearInterval(iv);
+          $("overlayMsg").innerHTML=changePort
+            ? "Le bridge ne répond pas encore sur son nouveau port. Ouvre cette adresse : <b>"+esc(urlCible)+"</b>"
+            : "Le bridge ne répond pas. Vérifie qu’il a bien redémarré, puis recharge la page.";
+        }
       },1500);
     });
 }
@@ -991,7 +1096,7 @@ function fmtDur(s){
 }
 
 /* ---------- sparklines ---------- */
-var histA=[],histP=[];
+var histA=[],histP=[],histS=[],histB=[];
 /* Aligne la résolution du canvas sur celle de l'écran. Sans ça, les courbes
    sont dessinées en 1x puis étirées par le CSS : elles paraissent floues sur
    tout écran haute densité (MacBook, écrans 4K), ce qui trahit immédiatement
@@ -1050,9 +1155,9 @@ function renderPower(p){
     $("pwrTag").className="tag warn";
     $("pwrTag").textContent="Limiteur actif · "+Math.round(scale*100)+" %";
     $("pwrNote").textContent=!mesuree
-      ? "Aucun pusher n'annonce sa consommation : le limiteur ne peut pas agir. Utilise plutôt la luminosité globale."
+      ? "Aucun pusher n’annonce sa consommation : le limiteur ne peut pas agir. Utilise plutôt la luminosité globale."
       : (p.limiting
-        ? "La demande dépasse la limite : toutes les LED sont atténuées à "+Math.round(scale*100)+" % pour protéger l'alimentation."
+        ? "La demande dépasse la limite : toutes les LED sont atténuées à "+Math.round(scale*100)+" % pour protéger l’alimentation."
         : "Sous la limite, aucune atténuation appliquée.");
   }else{
     $("pwrFill").style.width="0%";
@@ -1060,18 +1165,80 @@ function renderPower(p){
     $("pwrTag").style.display="none";
     $("pwrNote").textContent=mesuree
       ? "Consommation annoncée par les PixelPushers. Renseigne une limite ci-dessous pour activer la protection."
-      : "Tes pushers n'annoncent pas leur consommation (firmware ancien) : la limite serait sans effet.";
+      : "Tes pushers n’annoncent pas leur consommation (firmware ancien) : la limite serait sans effet.";
   }
+}
+
+/* ---------- univers consommes par un pusher ---------- */
+/* Reproduit la boucle exacte du mapping (ArtNetMapping.generateMapping) : le
+   calcul « pixels / 170 » ignorait le mode packing et l'adresse de depart. Sur
+   un 8x96 sans packing le bridge consomme U1..U8 alors que le tableau annoncait
+   U1..U5 : les trois dernieres lignes restaient noires sans explication.
+   Hypothese assumee : LED RGB (3 canaux), comme le reste de l'interface — le
+   snapshot n'expose pas le drapeau RGBOW par ligne. */
+var universCache={};
+function universPusher(p){
+  var strips=parseInt(p.strips,10)||0, px=parseInt(p.pixelsPerStrip,10)||0;
+  var u0=parseInt(p.artnetUniverse,10)||1;
+  var c0=parseInt(p.artnetChannel,10)||1;
+  var pack=(cfgPacking!==false);
+  var cle=[p.mac,strips,px,u0,c0,pack].join("|");
+  if(universCache[cle])return universCache[cle];
+  var u=u0,c=c0,uMax=u0,strip=0,pixel=0,left=strips*px;
+  if(left>200000)left=200000; // garde-fou : un pusher peut annoncer n'importe quoi
+  while(left>0){
+    if(u>uMax)uMax=u;
+    pixel++;left--;
+    if(pixel===px){
+      pixel=0;strip++;
+      if(strip>=strips)continue;
+      if(!pack){c=1;u++;continue;}
+    }
+    c+=3;
+    if(512-c<3){c=1;u++;}
+  }
+  var r={first:u0,last:uMax,count:uMax-u0+1};
+  universCache[cle]=r;
+  return r;
 }
 
 /* ---------- statut (poll 1 s) ---------- */
 var statusFails=0, userTouchedTest=false, lastPusherFp="", lastRecState="";
+var derniereUptime=-1, derniereReponseMs=0;
+function marquerDeconnecte(){
+  $("connBadge").classList.add("off");
+  $("connBadge").lastChild.textContent="Déconnecté";
+  /* Le tableau de bord doit cesser de faire croire que ses chiffres sont
+     vivants : grisé et surmonté d'un bandeau, on comprend d'un coup d'œil
+     qu'il date. Un badge de 12 px ne se voit pas depuis une régie. */
+  document.body.classList.add("stale");
+  $("offBannerAge").textContent=derniereReponseMs
+    ? "plus aucune réponse depuis "+Math.round((Date.now()-derniereReponseMs)/1000)+" s"
+    : "aucune réponse depuis l’ouverture de cette page";
+  $("offBanner").classList.add("show");
+}
 function refreshStatus(){
   fetch("/api/status",{cache:"no-store"}).then(function(r){return r.json();}).then(function(s){
-    statusFails=0;
+    statusFails=0;derniereReponseMs=Date.now();
     $("connBadge").classList.remove("off");
     $("connBadge").lastChild.textContent="Connecté";
     document.body.classList.remove("stale");
+    $("offBanner").classList.remove("show");
+    /* Le rendu est isolé du réseau : rattaché à la même chaîne .then, la moindre
+       exception d'affichage (champ manquant, JSON partiel) faisait annoncer
+       « Déconnecté » alors que le bridge répondait parfaitement. */
+    try{
+      renderStatus(s);
+    }catch(err){
+      if(window.console&&console.error)console.error("Affichage du tableau de bord :",err);
+    }
+  }).catch(function(){
+    statusFails++;
+    if(statusFails>=3)marquerDeconnecte();
+  });
+}
+function renderStatus(s){
+    derniereUptime=s.uptimeSec;
     $("version").textContent="v"+s.version;
     $("hUptime").textContent=fmtUptime(s.uptimeSec);
     $("tArtnet").innerHTML=s.artnetPps+' <span class="unit">paquets/s</span>';
@@ -1085,8 +1252,14 @@ function refreshStatus(){
     $("tErrCard").title=s.errorsTotal>0?("Dernière erreur : "+s.lastError+" — clique pour voir les logs"):"Aucune erreur — tout va bien";
     histA.push(parseFloat(s.artnetPps)||0);if(histA.length>60)histA.shift();
     histP.push(parseFloat(s.pushPps)||0);if(histP.length>60)histP.shift();
+    histS.push(parseFloat(s.sacnPps)||0);if(histS.length>60)histS.shift();
+    histB.push(parseFloat(s.totalBandwidth)||0);if(histB.length>60)histB.shift();
+    /* Les quatre tuiles chiffrées ont désormais leur courbe : deux tuiles sur
+       six en portaient une, la rangée paraissait bancale. */
     drawSpark($("spArtnet"),histA,"rgba(34,211,238,1)");
     drawSpark($("spPush"),histP,"rgba(99,102,241,1)");
+    drawSpark($("spSacn"),histS,"rgba(52,211,153,1)");
+    drawSpark($("spBw"),histB,"rgba(251,191,36,1)");
 
     if(s.lanUrls && s.lanUrls.length){
       if($("lanUrl").textContent!==s.lanUrls[0]){
@@ -1126,7 +1299,7 @@ function refreshStatus(){
       [h.pushersDetected,h.pusherCount+" PixelPusher(s) détecté(s)",
         h.pushersDetected?"Découverte automatique OK.":"Vérifie alimentation, réseau et pare-feu (UDP 7331)."],
       [h.dmxDataRecent,"Données DMX reçues",
-        h.dmxDataRecent?"Flux actif (dernière donnée il y a "+(h.lastDmxAgeMs<1500?"moins d'1 s":Math.round(h.lastDmxAgeMs/1000)+" s")+").":"Rien reçu depuis 10 s — source arrêtée ou mal configurée ?"],
+        h.dmxDataRecent?"Flux actif (dernière donnée il y a "+(h.lastDmxAgeMs<1500?"moins d’1 s":Math.round(h.lastDmxAgeMs/1000)+" s")+").":"Rien reçu depuis 10 s — source arrêtée ou mal configurée ?"],
       [h.pushingFrames,"Trames envoyées aux pushers",
         h.pushingFrames?"Les LED reçoivent le flux.":"Rien à envoyer (pas de données ou pas de pusher mappé)."]
     ];
@@ -1156,9 +1329,8 @@ function refreshStatus(){
         var tag=stale?'<span class="tag warn">instable</span>':'<span class="tag on">en ligne</span>';
         var universes="–";
         if(p.artnetUniverse>0){
-          var total=p.strips*p.pixelsPerStrip;
-          var count=Math.max(1,Math.ceil(total/170));
-          universes="U"+p.artnetUniverse+(count>1?" → U"+(p.artnetUniverse+count-1):"");
+          var uu=universPusher(p);
+          universes="U"+uu.first+(uu.last>uu.first?" → U"+uu.last:"");
         }
         return "<tr><td>"+tag+"</td><td>"+(i+1)+"</td><td>"+esc(p.ip)+"</td><td>"+esc(p.mac)
           +"</td><td>"+p.strips+" × "+p.pixelsPerStrip+"</td><td>"
@@ -1171,16 +1343,6 @@ function refreshStatus(){
     /* boutons de test de lignes (reconstruits si la config change) */
     var fp=s.pushers.map(function(p){return p.mac+":"+p.strips;}).join("|");
     if(fp!==lastPusherFp){lastPusherFp=fp;buildLineGrid(s.pushers);}
-  }).catch(function(){
-    statusFails++;
-    if(statusFails>=3){
-      $("connBadge").classList.add("off");
-      $("connBadge").lastChild.textContent="Déconnecté";
-      /* Le tableau de bord doit cesser de faire croire que ses chiffres sont
-         vivants : figés et grisés, on comprend d'un coup d'œil qu'ils datent. */
-      document.body.classList.add("stale");
-    }
-  });
 }
 setInterval(refreshStatus,1000);
 refreshStatus();
@@ -1208,23 +1370,31 @@ function runDiag(){
 }
 
 /* ---------- moniteur DMX ---------- */
-var dmxTimer=null;
-var dmxDetails=document.querySelector("#tab-dash details");
+/* Le timer n'était armé que sur l'ouverture du <details> : changer d'onglet le
+   laissait tourner, et le bridge sérialisait 512 valeurs quatre fois par seconde
+   pour un canvas invisible. Il ne tourne désormais que si le panneau est ouvert
+   ET l'onglet Tableau de bord affiché ET la page au premier plan. */
+var dmxTimer=null, dmxPanneau=null, dmxOngletOk=true;
 document.querySelectorAll("#tab-dash details").forEach(function(d){
   if(d.querySelector("#dmxCanvas")){
-    d.addEventListener("toggle",function(){
-      if(d.open){dmxPoll();dmxTimer=setInterval(dmxPoll,250);}
-      else{clearInterval(dmxTimer);}
-    });
+    dmxPanneau=d;
+    d.addEventListener("toggle",dmxSync);
   }
 });
+function dmxSetActive(actif){dmxOngletOk=!!actif;dmxSync();}
+function dmxSync(){
+  var doitTourner=!!(dmxPanneau&&dmxPanneau.open&&dmxOngletOk);
+  if(doitTourner&&!dmxTimer){dmxPoll();dmxTimer=setInterval(dmxPoll,250);}
+  else if(!doitTourner&&dmxTimer){clearInterval(dmxTimer);dmxTimer=null;}
+}
 function dmxPoll(){
   var u=parseInt($("dmxU").value,10)||1;
   fetch("/api/dmx?u="+u,{cache:"no-store"}).then(function(r){return r.json();}).then(function(d){
-    var cv=$("dmxCanvas"),c=cv.getContext("2d"),W=cv.width,H=cv.height;
+    var cv=$("dmxCanvas"),c=fitCanvas(cv),r=window.devicePixelRatio||1;
+    var W=cv.width/r,H=cv.height/r;
     c.clearRect(0,0,W,H);
     if(!d.values.length){
-      $("dmxInfo").textContent="Aucune donnée reçue sur l'univers "+u+" pour l'instant.";
+      $("dmxInfo").textContent="Aucune donnée reçue sur l’univers "+u+" pour l’instant.";
       return;
     }
     $("dmxInfo").textContent=d.ageMs>=0?("Dernière trame il y a "+(d.ageMs<1000?d.ageMs+" ms":Math.round(d.ageMs/1000)+" s")+" · "+d.values.length+" canaux"):"";
@@ -1237,7 +1407,13 @@ function dmxPoll(){
       c.fillStyle=i%3===0?"rgba(248,113,113,.9)":i%3===1?"rgba(52,211,153,.9)":"rgba(77,163,255,.9)";
       c.fillRect(i*bw,H-h,Math.max(1,bw-0.3),h);
     }
-  }).catch(function(){});
+  },function(){
+    /* Sans ça, le moniteur laissait affichée une information périmée comme si
+       elle venait d'arriver. Gestionnaire en second argument de .then, comme
+       ailleurs : un .catch aurait aussi attrapé les exceptions de dessin et
+       accusé le bridge d'un bug d'affichage. */
+    $("dmxInfo").textContent="Moniteur en pause — le bridge ne répond pas.";
+  });
 }
 $("dmxU").addEventListener("change",dmxPoll);
 
@@ -1250,10 +1426,14 @@ function showQr(){
 }
 
 /* copie de l'URL mobile */
-$("lanUrl").addEventListener("click",function(){
+activableClavier($("lanUrl"),function(){
   var t=this.textContent;
-  if(navigator.clipboard&&t.indexOf("http")===0){
-    navigator.clipboard.writeText(t).then(function(){toast("Adresse copiée : "+t);});
+  if(t.indexOf("http")!==0)return;
+  if(navigator.clipboard){
+    navigator.clipboard.writeText(t).then(function(){toast("Adresse copiée : "+t);})
+      .catch(function(){toast("Copie refusée par le navigateur — note l’adresse : "+t,"warn");});
+  }else{
+    toast("Copie impossible ici — note l’adresse : "+t,"warn");
   }
 });
 
@@ -1297,7 +1477,9 @@ var currentPattern="solid";
 function selectPattern(p,autoEnable){
   currentPattern=p;
   document.querySelectorAll(".pat").forEach(function(x){
-    x.classList.toggle("sel",x.dataset.p===p);
+    var actif=(x.dataset.p===p);
+    x.classList.toggle("sel",actif);
+    x.setAttribute("aria-pressed",actif?"true":"false");
   });
   if(autoEnable&&!$("testEnabled").checked){$("testEnabled").checked=true;}
   sendTest();
@@ -1316,7 +1498,7 @@ function sendTest(){
     linePusher:lineSel.pusher,
     lineStrip:lineSel.strip
   }).then(function(){setTimeout(function(){userTouchedTest=false;},1500);})
-    .catch(function(){toast("Bridge injoignable","err");});
+    .catch(echec);
 }
 $("testEnabled").addEventListener("change",sendTest);
 $("testColor").addEventListener("change",sendTest);
@@ -1326,21 +1508,42 @@ $("testSpeed").addEventListener("input",function(){$("testSpeedVal").textContent
 $("testSpeed").addEventListener("change",sendTest);
 
 /* ---------- séquences ---------- */
+/* post() rejette désormais sur refus du serveur : chaque appel doit avoir son
+   .catch, sinon l'échec est silencieux (et la promesse non traitée).
+   Un refus du bridge est affiché tel quel (message français, écrit pour
+   l'opérateur) ; tout le reste est une panne réseau, dont le message natif du
+   navigateur est en anglais et ne veut rien dire en régie. */
+function echec(e){
+  toast(e&&e.duBridge&&e.message?e.message:"Bridge injoignable — il n’a pas répondu.","err");
+}
 $("recBtn").addEventListener("click",function(){
   if(this.classList.contains("rec")){
     post("/api/recorder",{action:"stopRecord"}).then(function(){
       toast("Enregistrement terminé ✓");refreshStatus();loadRecordings();
-    });
+    }).catch(echec);
   }else{
     var name=$("recName").value||"sequence";
     post("/api/recorder",{action:"record",name:name}).then(function(r){
-      if(r.ok){toast("Enregistrement démarré : "+r.name);refreshStatus();}
-      else{toast(r.error||"Erreur","err");}
-    });
+      toast("Enregistrement démarré : "+(r.name||name));refreshStatus();
+    }).catch(echec);
   }
 });
+/* « Aucune séquence » / « — presets — » sont des affirmations : elles ne doivent
+   s'afficher que si le serveur a vraiment répondu une liste vide. En cas
+   d'échec on le dit et on retente, sinon l'utilisateur croit avoir tout perdu
+   alors que ses fichiers sont intacts. */
+var recRetry={id:null,fn:function(){loadRecordings();}};
+var presetRetry={id:null};
+function listeIndisponible(el,retry){
+  el.innerHTML='<span class="hint" style="color:var(--warn)">Liste indisponible — bridge injoignable. Nouvelle tentative dans 5 s…</span>';
+  if(!retry.id)retry.id=setTimeout(function(){retry.id=null;retry.fn();},5000);
+}
 function loadRecordings(){
-  fetch("/api/recorder").then(function(r){return r.json();}).then(function(d){
+  if(recRetry.id){clearTimeout(recRetry.id);recRetry.id=null;}
+  fetch("/api/recorder").then(function(r){
+    if(!r.ok)throw new Error("HTTP "+r.status);
+    return r.json();
+  }).then(function(d){
     var el=$("recList");
     var playing=d.state.playing?d.state.playName:"";
     if(!d.recordings.length){
@@ -1361,60 +1564,95 @@ function loadRecordings(){
       b.addEventListener("click",function(){
         var a=b.dataset.a,n=b.dataset.n;
         if(a==="delete"){
-          openModal("Supprimer « "+n+" » ?","La séquence sera définitivement effacée.","Supprimer",function(){
-            post("/api/recorder",{action:"delete",name:n}).then(function(){toast("Séquence supprimée");loadRecordings();});
+          openModal("Supprimer la séquence « "+n+" » ?",
+            "Le fichier sera définitivement effacé du disque. Cette action est irréversible.","Supprimer",function(){
+            post("/api/recorder",{action:"delete",name:n})
+              .then(function(){toast("Séquence supprimée");})
+              .catch(echec)
+              .then(function(){loadRecordings();});
           });
         }else if(a==="stopPlay"){
-          post("/api/recorder",{action:"stopPlay"}).then(function(){toast("Lecture arrêtée — Art-Net rétabli");loadRecordings();refreshStatus();});
+          post("/api/recorder",{action:"stopPlay"}).then(function(){
+            toast("Lecture arrêtée — Art-Net rétabli");loadRecordings();refreshStatus();
+          }).catch(echec);
         }else{
-          post("/api/recorder",{action:"play",name:n,loop:(a==="playloop")}).then(function(r){
-            if(r.ok){toast("Lecture : "+n+(a==="playloop"?" (en boucle)":""));}
-            else{toast(r.error||"Erreur de lecture","err");}
-            loadRecordings();refreshStatus();
-          });
+          post("/api/recorder",{action:"play",name:n,loop:(a==="playloop")}).then(function(){
+            toast("Lecture : "+n+(a==="playloop"?" (en boucle)":""));
+          }).catch(echec).then(function(){loadRecordings();refreshStatus();});
         }
       });
     });
+  },function(){
+    /* Gestionnaire en second argument de .then : il n'attrape que l'échec du
+       fetch, pas une exception de rendu — sinon un bug d'affichage se
+       déguiserait en panne réseau et bouclerait toutes les 5 s. */
+    listeIndisponible($("recList"),recRetry);
   });
 }
 loadRecordings();
 
 /* ---------- presets ---------- */
 function loadPresets(){
-  fetch("/api/presets").then(function(r){return r.json();}).then(function(d){
-    var sel=$("presetSel");
+  if(presetRetry.id){clearTimeout(presetRetry.id);presetRetry.id=null;}
+  var sel=$("presetSel");
+  fetch("/api/presets").then(function(r){
+    if(!r.ok)throw new Error("HTTP "+r.status);
+    return r.json();
+  }).then(function(d){
     var cur=sel.value;
+    sel.disabled=false;
     sel.innerHTML='<option value="">— presets —</option>'+d.presets.map(function(n){
       return '<option value="'+esc(n)+'">'+esc(n)+"</option>";
     }).join("");
     sel.value=cur;
+  },function(){
+    /* On ne laisse pas croire qu'il n'y a aucun preset : les fichiers sont
+       intacts, c'est la liste qui n'a pas pu être lue. */
+    sel.innerHTML='<option value="">— liste indisponible —</option>';
+    sel.disabled=true;
+    if(!presetRetry.id)presetRetry.id=setTimeout(function(){presetRetry.id=null;loadPresets();},5000);
   });
 }
 loadPresets();
+/* Le serveur retire les caractères qu'il n'accepte pas et tronque à 40 : on
+   applique exactement la même règle avant l'envoi, sinon le toast confirmait un
+   nom qui n'était pas celui du fichier réellement écrit. */
+var PRESET_RE;
+try{ PRESET_RE=new RegExp("[^\\p{L}\\p{N} _()\\-]","gu"); }
+catch(e){ PRESET_RE=/[^A-Za-z0-9À-ÖØ-öø-ſ _()\-]/g; }
+function nomPresetValide(n){
+  return String(n).replace(PRESET_RE,"").trim().slice(0,40).trim();
+}
 $("presetSaveBtn").addEventListener("click",function(){
-  var name=$("presetName").value.trim()||$("presetSel").value;
-  if(!name){toast("Donne un nom au preset","warn");return;}
-  post("/api/presets",{action:"save",name:name}).then(function(r){
-    if(r.ok){toast("Preset enregistré : "+name);$("presetName").value="";loadPresets();}
-    else toast(r.error||"Erreur","err");
-  });
+  var saisi=$("presetName").value.trim()||$("presetSel").value;
+  if(!saisi){toast("Donne un nom au preset","warn");return;}
+  var name=nomPresetValide(saisi);
+  if(!name){toast("Ce nom ne contient aucun caractère utilisable — utilise des lettres ou des chiffres.","err");return;}
+  post("/api/presets",{action:"save",name:name}).then(function(){
+    if(name!==saisi)toast("Preset enregistré sous « "+name+" » (caractères non autorisés retirés).","warn");
+    else toast("Preset enregistré : "+name);
+    $("presetName").value="";loadPresets();
+  }).catch(echec);
 });
 $("presetLoadBtn").addEventListener("click",function(){
   var name=$("presetSel").value;
   if(!name){toast("Choisis un preset","warn");return;}
   post("/api/presets",{action:"load",name:name}).then(function(r){
-    if(r.ok){
-      loadConfig();
-      toast(r.restartRequired?"Preset chargé — redémarre pour appliquer port/sACN.":"Preset chargé et appliqué ✓");
-    }else toast(r.error||"Erreur","err");
-  });
+    loadConfig();
+    toast(r.restartRequired?"Preset chargé — redémarre pour appliquer port/sACN.":"Preset chargé et appliqué ✓");
+  }).catch(echec);
 });
 $("presetDelBtn").addEventListener("click",function(){
   var name=$("presetSel").value;
   if(!name){toast("Choisis un preset","warn");return;}
-  openModal("Supprimer le preset « "+name+" » ?","","Supprimer",function(){
-    post("/api/presets",{action:"delete",name:name}).then(function(){toast("Preset supprimé");loadPresets();});
-  });
+  openModal("Supprimer le preset « "+name+" » ?",
+    "Le fichier de preset sera définitivement effacé du disque. Cette action est irréversible — la configuration en cours, elle, n’est pas modifiée.",
+    "Supprimer",function(){
+      post("/api/presets",{action:"delete",name:name})
+        .then(function(){toast("Preset supprimé");})
+        .catch(echec)
+        .then(function(){loadPresets();});
+    });
 });
 
 /* ---------- adressage DMX ---------- */
@@ -1472,9 +1710,18 @@ function calcRun(){
     }
     for(var bi=0;bi<barsLine;bi++){
       var startU=u,startC=c,endU=u,endC=c+ch-1;
+      var derniereBarre=(bi===barsLine-1);
       for(var p=0;p<ledsBar;p++){
         endU=u;endC=c+ch-1;
         summary[u]=(summary[u]||0)+ch;
+        /* En mode « univers frais par ligne », le coeur legacy passe a l'univers
+           suivant AU LIEU d'appliquer le debordement de canal : son « continue »
+           saute justement ce bloc (ArtNetMapping, branche !pack). Laisser
+           advance() s'executer sur le dernier pixel de la ligne, puis faire u++
+           ci-dessus, sautait un univers entier des que la ligne se terminait
+           pile en fin d'univers — exactement le cas d'une ligne de 170 LED RGB,
+           c'est-a-dire la configuration de remplissage optimal. */
+        if(mode==="perline"&&derniereBarre&&p===ledsBar-1)break;
         advance();
       }
       rows.push({line:li+1,bar:bi+1,leds:ledsBar,su:startU,sc:startC,eu:endU,ec:endC,
@@ -1514,7 +1761,11 @@ function calcCopy(){
    les valeurs par defaut du HTML (tout decoche, RGB, 100 %). Enregistrer a ce
    moment-la ecrasait silencieusement TOUS les reglages par ces valeurs. On
    interdit donc l'enregistrement tant que la lecture n'a pas abouti. */
-var cfgLoaded=false;
+var cfgLoaded=false, cfgDirty=false, cfgEmpreinteServeur="", cfgDernierServeur=null;
+/* Valeurs de configuration dont le tableau de bord a besoin : le mode packing
+   change le nombre d'univers consommés par un pusher, et le port sert au
+   redémarrage. Elles n'existent pas dans /api/status. */
+var cfgPacking=null, cfgWebPort=0;
 function setCfgLoaded(ok,message){
   cfgLoaded=ok;
   var b=$("saveBtn"), w=$("cfgWarn");
@@ -1522,37 +1773,100 @@ function setCfgLoaded(ok,message){
         b.title=ok?"":"Configuration non chargée — enregistrement bloqué";}
   if(w){w.textContent=message||"";w.classList.toggle("show",!ok);}
 }
+function cfgEmpreinte(c){
+  return [c.colourOrder,c.packing,c.sacnEnabled,c.frameLimit,c.autoThrottle,
+    c.powerLimitAmps,c.milliampsPerChannel,c.extraDelayMs,c.brightness,c.antiLog,
+    c.webPort,c.expiryEnabled,c.debug,c.openBrowser,c.watchdogSec,c.blackoutOnExit].join("|");
+}
+function appliquerCfg(c){
+  $("c_colourOrder").value=c.colourOrder;
+  $("c_packing").checked=c.packing;
+  $("c_sacnEnabled").checked=c.sacnEnabled;
+  $("c_frameLimit").value=c.frameLimit;
+  $("c_autoThrottle").checked=c.autoThrottle;
+  $("c_powerLimitAmps").value=c.powerLimitAmps;
+  $("c_milliampsPerChannel").value=c.milliampsPerChannel;
+  $("c_extraDelayMs").value=c.extraDelayMs;
+  $("c_brightness").value=Math.round(c.brightness*100);
+  $("c_brightnessVal").textContent=Math.round(c.brightness*100)+" %";
+  $("c_antiLog").checked=c.antiLog;
+  $("c_webPort").value=c.webPort;
+  $("c_expiryEnabled").checked=c.expiryEnabled;
+  $("c_debug").checked=c.debug;
+  $("c_openBrowser").checked=c.openBrowser;
+  $("c_watchdogSec").value=c.watchdogSec;
+  $("c_blackoutOnExit").checked=c.blackoutOnExit;
+}
+function memoriserCfg(c){
+  cfgDernierServeur=c;
+  cfgEmpreinteServeur=cfgEmpreinte(c);
+  var pack=!!c.packing, port=parseInt(c.webPort,10)||0;
+  if(pack!==cfgPacking)universCache={}; // le packing change le calcul des univers
+  cfgPacking=pack;cfgWebPort=port;
+}
 function loadConfig(){
-  fetch("/api/config").then(function(r){
+  fetch("/api/config",{cache:"no-store"}).then(function(r){
     if(!r.ok)throw new Error("HTTP "+r.status);
     return r.json();
   }).then(function(c){
-    $("c_colourOrder").value=c.colourOrder;
-    $("c_packing").checked=c.packing;
-    $("c_sacnEnabled").checked=c.sacnEnabled;
-    $("c_frameLimit").value=c.frameLimit;
-    $("c_autoThrottle").checked=c.autoThrottle;
-    $("c_powerLimitAmps").value=c.powerLimitAmps;
-    $("c_milliampsPerChannel").value=c.milliampsPerChannel;
-    $("c_extraDelayMs").value=c.extraDelayMs;
-    $("c_brightness").value=Math.round(c.brightness*100);
-    $("c_brightnessVal").textContent=Math.round(c.brightness*100)+" %";
-    $("c_antiLog").checked=c.antiLog;
-    $("c_webPort").value=c.webPort;
-    $("c_expiryEnabled").checked=c.expiryEnabled;
-    $("c_debug").checked=c.debug;
-    $("c_openBrowser").checked=c.openBrowser;
-    $("c_watchdogSec").value=c.watchdogSec;
-    $("c_blackoutOnExit").checked=c.blackoutOnExit;
+    memoriserCfg(c);
+    appliquerCfg(c);
+    cfgDirty=false;
+    $("cfgChangedBanner").classList.remove("show");
     setCfgLoaded(true);
   }).catch(function(){
-    setCfgLoaded(false,"Configuration non chargée — le bridge n'a pas répondu. "+
-      "N'enregistre pas : tu écraserais tous tes réglages par des valeurs vides. "+
+    setCfgLoaded(false,"Configuration non chargée — le bridge n’a pas répondu. "+
+      "N’enregistre pas : tu écraserais tous tes réglages par des valeurs vides. "+
       "Recharge la page quand le bridge répond de nouveau.");
   });
 }
 setCfgLoaded(false,"Chargement de la configuration…");
 loadConfig();
+
+/* La configuration peut changer ailleurs : interface téléphone, chargement d'un
+   preset, autre onglet. Sans resynchronisation, un clic sur Enregistrer depuis
+   une page ouverte depuis des heures réécrivait TOUTE la configuration avec des
+   valeurs périmées, en silence et remappage compris. On la relit donc toutes
+   les 5 s (requête minuscule, hors du chemin Art-Net) et on n'écrase jamais des
+   modifications locales sans demander. */
+function marquerCfgModifiee(e){
+  var t=e.target;
+  if(t&&t.id&&t.id.indexOf("c_")===0)cfgDirty=true;
+}
+$("cfgForm").addEventListener("input",marquerCfgModifiee);
+$("cfgForm").addEventListener("change",marquerCfgModifiee);
+function surveillerCfg(){
+  fetch("/api/config",{cache:"no-store"}).then(function(r){
+    if(!r.ok)throw new Error("HTTP "+r.status);
+    return r.json();
+  }).then(function(c){
+    if(!cfgLoaded){loadConfig();return;}
+    if(cfgEmpreinte(c)===cfgEmpreinteServeur)return;
+    if(cfgDirty){
+      cfgDernierServeur=c;
+      $("cfgChangedBanner").classList.add("show");
+    }else{
+      memoriserCfg(c);
+      appliquerCfg(c);
+      $("cfgChangedBanner").classList.remove("show");
+      toast("Configuration mise à jour depuis un autre écran.","warn");
+    }
+  }).catch(function(){});
+}
+setInterval(surveillerCfg,5000);
+function reloadCfgFromServer(){
+  cfgDirty=false;
+  $("cfgChangedBanner").classList.remove("show");
+  loadConfig();
+  goTab("config");
+}
+function keepMyCfg(){
+  /* On garde les valeurs affichées, mais on retient l'état réel du serveur pour
+     ne pas redemander en boucle. Le prochain Enregistrer écrasera sciemment. */
+  if(cfgDernierServeur)memoriserCfg(cfgDernierServeur);
+  $("cfgChangedBanner").classList.remove("show");
+  toast("Tes valeurs sont conservées — elles remplaceront celles du bridge au prochain enregistrement.","warn");
+}
 $("c_brightness").addEventListener("input",function(){$("c_brightnessVal").textContent=this.value+" %";});
 $("saveBtn").addEventListener("click",function(){
   if(!cfgLoaded){
@@ -1577,18 +1891,17 @@ $("saveBtn").addEventListener("click",function(){
     watchdogSec:$("c_watchdogSec").value,
     blackoutOnExit:$("c_blackoutOnExit").checked
   }).then(function(r){
-    if(r.ok){
-      toast(r.restartRequired
-        ?"Enregistré. Redémarre le bridge (bouton ↻) pour appliquer port/sACN."
-        :"Configuration enregistrée et appliquée ✓");
-    }else{
-      toast(r.error||"Erreur de validation","err");
-    }
-  }).catch(function(){toast("Bridge injoignable","err");});
+    toast(r.restartRequired
+      ?"Enregistré. Redémarre le bridge (bouton ↻) pour appliquer port/sACN."
+      :"Configuration enregistrée et appliquée ✓");
+    cfgDirty=false;
+    $("cfgChangedBanner").classList.remove("show");
+    loadConfig(); // on repart de ce que le serveur a réellement retenu
+  }).catch(echec);
 });
 $("remapBtn").addEventListener("click",function(){
   post("/api/action",{action:"remap"}).then(function(){toast("Remappage effectué ✓");})
-    .catch(function(){toast("Bridge injoignable","err");});
+    .catch(echec);
 });
 
 /* ---------- logs ---------- */
@@ -1596,38 +1909,134 @@ var logView=$("logView"),logCount=0;
 var levelOn={INFO:true,WARN:true,ERROR:true};
 var logFilter="";
 var autoScroll=true;
+/* Les filtres ne détruisent plus rien : chaque ligne est insérée avec ses
+   métadonnées et on ne joue que sur l'affichage. Avant, décocher « Info »
+   perdait définitivement les lignes concernées (elles n'entraient jamais dans
+   le DOM) et taper dans « Filtrer… » n'avait aucun effet sur l'existant. */
+function ligneVisible(div){
+  if(div.dataset.lvl==="SEP")return true;
+  if(!levelOn[div.dataset.lvl])return false;
+  if(logFilter&&(div.dataset.txt||"").indexOf(logFilter)<0)return false;
+  return true;
+}
+/* Le compteur est tenu a jour ligne par ligne : le recalculer a chaque arrivee
+   couterait un parcours des 2000 lignes du DOM, et la rediffusion complete de
+   l'historique en produit 3000 d'affilee. */
+var logCaches=0;
+function majLignesMasquees(){
+  $("logHidden").textContent=logCaches?(logCaches+" ligne(s) masquée(s) par les filtres"):"";
+}
+function applyFilters(){
+  var enfants=logView.children;
+  logCaches=0;
+  for(var i=0;i<enfants.length;i++){
+    var ok=ligneVisible(enfants[i]);
+    enfants[i].style.display=ok?"":"none";
+    if(!ok)logCaches++;
+  }
+  majLignesMasquees();
+  if(autoScroll)logView.scrollTop=logView.scrollHeight;
+}
 document.querySelectorAll(".fchip[data-lvl]").forEach(function(ch){
   ch.addEventListener("click",function(){
     ch.classList.toggle("on");
-    levelOn[ch.dataset.lvl]=ch.classList.contains("on");
+    var on=ch.classList.contains("on");
+    ch.setAttribute("aria-pressed",on?"true":"false");
+    levelOn[ch.dataset.lvl]=on;
+    applyFilters();
   });
 });
 $("autoScrollChip").addEventListener("click",function(){
-  this.classList.toggle("on");autoScroll=this.classList.contains("on");
+  this.classList.toggle("on");
+  autoScroll=this.classList.contains("on");
+  this.setAttribute("aria-pressed",autoScroll?"true":"false");
+  if(autoScroll)logView.scrollTop=logView.scrollHeight;
 });
-$("logSearch").addEventListener("input",function(){logFilter=this.value.toLowerCase();});
+$("logSearch").addEventListener("input",function(){
+  logFilter=this.value.toLowerCase();applyFilters();
+});
 function addLogLine(e){
-  if(!levelOn[e.level])return;
-  if(logFilter&&e.msg.toLowerCase().indexOf(logFilter)<0)return;
-  if(logCount>2000){logView.removeChild(logView.firstChild);}else{logCount++;}
+  if(logCount>2000){
+    var vieille=logView.firstChild;
+    if(vieille&&vieille.style&&vieille.style.display==="none")logCaches--;
+    logView.removeChild(vieille);
+  }else{logCount++;}
   var d=new Date(e.ts);
   var ts=("0"+d.getHours()).slice(-2)+":"+("0"+d.getMinutes()).slice(-2)+":"+("0"+d.getSeconds()).slice(-2);
   var div=document.createElement("div");
   div.className="lg-"+e.level;
+  div.dataset.lvl=e.level;
+  div.dataset.txt=String(e.msg).toLowerCase();
   div.innerHTML='<span class="lg-ts">'+ts+"</span> "+esc(e.msg);
+  if(!ligneVisible(div)){div.style.display="none";logCaches++;}
   logView.appendChild(div);
+  majLignesMasquees();
   if(autoScroll)logView.scrollTop=logView.scrollHeight;
 }
-function clearLogsLocal(){
-  logView.innerHTML="";logCount=0;
-  post("/api/action",{action:"clearLogs"});
+/* « Vider » laissait croire à un nettoyage d'affichage alors que l'action
+   détruisait l'historique en mémoire du bridge (3000 lignes) et remettait le
+   compteur d'erreurs à zéro, sans la moindre confirmation. */
+function clearLogsAsk(){
+  openModal("Effacer le journal ?",
+    "Cela efface aussi l’historique gardé en mémoire par le bridge (3000 dernières lignes) et remet le compteur d’erreurs à zéro. "+
+    "Le fichier ~/.pixelpusherbridge/bridge.log, lui, reste intact.",
+    "Effacer",function(){
+      logView.innerHTML="";logCount=0;logCaches=0;majLignesMasquees();
+      post("/api/action",{action:"clearLogs"})
+        .then(function(){toast("Journal effacé — le fichier bridge.log est conservé.");})
+        .catch(echec);
+    });
+}
+/* Le flux SSE n'est ouvert que dans l'onglet Logs. Laissé ouvert en permanence,
+   il monopolisait durablement une des 6 connexions HTTP/1.1 par page : quelques
+   onglets suffisaient à empêcher tout /api/status d'aboutir et à figer le
+   tableau de bord alors que le bridge allait très bien. */
+var es=null, sseRetry=null, sseDelai=3000, sseVoulu=false;
+function sseSetActive(actif){
+  sseVoulu=!!actif;
+  if(sseVoulu)connectSse();
+  else disconnectSse();
+}
+function disconnectSse(){
+  if(sseRetry){clearTimeout(sseRetry);sseRetry=null;}
+  if(es){es.close();es=null;}
+}
+function separateurLog(texte){
+  var div=document.createElement("div");
+  div.className="lg-WARN";
+  div.dataset.lvl="SEP";
+  div.dataset.txt="";
+  div.style.opacity=".75";
+  div.textContent="—— "+texte+" ——";
+  logView.appendChild(div);logCount++;
+  if(autoScroll)logView.scrollTop=logView.scrollHeight;
 }
 function connectSse(){
-  var es=new EventSource("/api/logs");
-  es.addEventListener("log",function(ev){addLogLine(JSON.parse(ev.data));});
-  es.onerror=function(){es.close();setTimeout(connectSse,3000);};
+  if(!sseVoulu||es)return;
+  if(sseRetry){clearTimeout(sseRetry);sseRetry=null;}
+  var flux=new EventSource("/api/logs");
+  es=flux;
+  flux.onopen=function(){
+    sseDelai=3000;
+    /* Le serveur rediffuse tout son historique à chaque connexion : on repart
+       d'une vue vide, sinon chaque reconnexion empilait une copie entrelacée de
+       plus, avec des horodatages qui repartaient en arrière — et le plafond de
+       2000 lignes chassait justement celles qu'on cherchait. */
+    logView.innerHTML="";logCount=0;logCaches=0;majLignesMasquees();
+  };
+  flux.addEventListener("log",function(ev){
+    try{addLogLine(JSON.parse(ev.data));}catch(err){}
+  });
+  flux.onerror=function(){
+    if(es!==flux)return;
+    flux.close();es=null;
+    if(!sseVoulu)return;
+    separateurLog("journal interrompu — nouvelle tentative dans "+Math.round(sseDelai/1000)+" s");
+    sseRetry=setTimeout(function(){sseRetry=null;connectSse();},sseDelai);
+    sseDelai=Math.min(30000,sseDelai*2); // backoff : le 3 s fixe martelait un serveur saturé
+  };
 }
-connectSse();
+majFluxOnglet();
 </script>
 </body>
 </html>

@@ -67,7 +67,9 @@ et `LogBus` ne compte plus les lignes de stack trace comme des erreurs distincte
 
 ### 7. Zip macOS depuis Windows
 Un zip créé sous Windows perd le bit exécutable du launcher → l'app ne démarre pas.
-Toujours utiliser `packaging/make_mac_app.sh` depuis macOS ou Linux (perms attendues : 0755/0711).
+Toujours utiliser `packaging/make_mac_app.sh` depuis macOS ou Linux — il refuse désormais de
+tourner sans la commande `zip` et impose lui-même les droits (dossiers et fichiers lisibles par
+tous, lanceur en 0755), au lieu de laisser l'umask de la machine décider. Voir piège n°15.
 
 ### 8. Avertissement « would increase delay, but autothrottle is disabled »
 Ce n'est **pas** une erreur : le pusher signale qu'il reçoit plus vite qu'il ne peut suivre.
@@ -132,6 +134,46 @@ veille, téléphone verrouillé) remplit le tampon TCP et **bloque l'écriture**
 la réception DMX. Règle générale : entre un producteur temps réel et un
 consommateur réseau, il faut une file bornée et un thread dédié.
 
+### 14. Le repli de compilation cassait la cible Java 11
+
+`BUILD.bat` relançait `javac` **sans** `--release 11` dès que la première tentative échouait,
+quelle qu'en soit la cause. Un jar en bytecode 21 pouvait ainsi partir chez un client : sur un
+poste équipé d'un Java plus ancien, `UnsupportedClassVersionError` — invisible, puisque le
+lanceur passe par `javaw` (pas de console) ou par le bundle `.app`.
+**Résolu :** le repli n'est autorisé que si `build\javac_err.txt` mentionne réellement l'option
+(`--release`, `release version`, `invalid target release`) ; toute autre erreur arrête le build.
+Et surtout, la version majeure du bytecode produit est relue après coup (octets 6-7 de
+`Main.class`, **55 = Java 11**) : une autre valeur fait échouer la compilation. Le script
+vérifie aussi la copie de `web/*.html` (un jar sans interface passait pour un build réussi) et
+signale une incohérence de version entre `AppConfig.VERSION`, `Info.plist` et `CHANGELOG.md`.
+
+**Piège dans le piège :** un `exit /b 1` placé dans un bloc parenthésé **imbriqué** termine
+bien le script, mais `cmd.exe` perd le code de retour — l'appelant reçoit 0. La première
+version du correctif affichait donc l'erreur de compilation puis annonçait un succès à
+`cmd /c BUILD.bat` (vérifié : code 0, aucun jar produit). Les sorties en erreur passent
+désormais par `goto :erreur_compilation`, étiquette placée au premier niveau du script.
+Règle : dans un `.bat`, **jamais de `exit /b` à plus d'un niveau de parenthèses**.
+
+### 15. Le livrable macOS n'était pas reproductible
+
+Le zip distribué contenait « Signer l'app (optionnel).command » que `make_mac_app.sh` ne copiait
+pas : l'archive avait été complétée à la main, la release suivante l'aurait donc perdu.
+**Résolu :** le script est la seule source de vérité — il contrôle la présence de chaque élément
+*avant* d'assembler, embarque `LICENSE` (la licence MIT l'exige « in all copies »), et normalise
+les droits (`chmod -R go+rX` + `755` sur le lanceur). Sans cette normalisation, l'umask de la
+machine de build produisait une app en 0700 : parfaitement fonctionnelle pour le compte qui
+avait décompressé l'archive, impossible à lancer depuis un autre compte du même Mac — cas
+courant sur un poste de régie partagé.
+
+### 16. macOS 15 : l'autorisation « Réseau local »
+
+Depuis Sequoia, toute application qui émet en broadcast/multicast déclenche une demande
+d'autorisation « Réseau local ». Un refus est **totalement silencieux côté Java** : les
+datagrammes sont jetés, aucune exception, aucun log — plus aucun pusher découvert alors que
+tout paraît normal. Le texte de la demande vient de `NSLocalNetworkUsageDescription`, désormais
+présent dans `packaging/macos/Info.plist`. Si un Mac ne découvre rien : Réglages Système →
+Confidentialité et sécurité → Réseau local.
+
 ## Validations effectuées
 
 - **Mapping bout en bout** : faux pusher + émetteur Art-Net → couleurs reçues au pixel près.
@@ -176,9 +218,15 @@ consommateur réseau, il faut une file bornée et un thread dédié.
 - Fenêtre native embarquée (JavaFX WebView) pour se passer d'Edge/Chrome — gros surcoût,
   la solution `--app=` est jugée suffisante.
 
-## Environnement de l'auteur
+## Configuration de référence (validée)
 
-- Machine de développement : **Windows** (le JDK y est installé, c'est là que `BUILD.bat` tourne).
-- Machine cible principale : **MacBook M2 sous macOS 13.2** + un PixelPusher (8 lignes × 96 px,
-  firmware 141, IP 192.168.0.230) et MadMapper comme source Art-Net.
-- L'utilisateur travaille aussi avec grandMA3, BEYOND, Resolume.
+Ce que la chaîne de développement suppose, sans identifier de machine particulière :
+
+- **Compilation sous Windows** avec un JDK installé (`BUILD.bat`), **empaquetage macOS sous
+  Unix** (`packaging/make_mac_app.sh`, voir piège n°7).
+- Cible de validation : **Mac Apple Silicon sous macOS 13 ou plus récent**, un contrôleur
+  PixelPusher 8 lignes × 96 px en firmware 141, MadMapper comme source Art-Net.
+- Sources également utilisées en exploitation : grandMA3, BEYOND, Resolume.
+
+Les paramètres propres à une installation (adressage IP, nom des machines) n'ont pas leur
+place ici : ce fichier part dans le dépôt public.

@@ -14,12 +14,21 @@ public class Watchdog implements Runnable {
   private final AppConfig cfg;
   private final LegacyCore core;
   private final TestPatterns tests;
+  private volatile Recorder recorder;
   private volatile boolean triggered = false;
 
   public Watchdog(AppConfig cfg, LegacyCore core, TestPatterns tests) {
     this.cfg = cfg;
     this.core = core;
     this.tests = tests;
+  }
+
+  /**
+   * Lecteur de sequences, pour ne pas confondre une lecture avec une perte de
+   * signal (voir run()). Facultatif : le watchdog fonctionne sans.
+   */
+  public void setRecorder(Recorder r) {
+    this.recorder = r;
   }
 
   public void start() {
@@ -43,13 +52,24 @@ public class Watchdog implements Runnable {
     return last;
   }
 
+  /** true si une sequence enregistree est en cours de lecture. */
+  private boolean isPlaying() {
+    Recorder r = recorder;
+    return r != null && r.isPlaying();
+  }
+
   @Override
   public void run() {
     while (true) {
       try {
         Thread.sleep(1000);
         int limit = cfg.getWatchdogSec();
-        if (limit <= 0 || tests.isEnabled()) {
+        // Pendant un scenario de test ou la lecture d'une sequence, les pixels
+        // sont alimentes par le bridge lui-meme : aucune trame n'arrive du
+        // reseau et universeLastSeen ne bouge plus. Sans cette exemption, le
+        // watchdog prenait une lecture pour une perte de signal et intercalait
+        // une trame noire en plein milieu, devant public.
+        if (limit <= 0 || tests.isEnabled() || isPlaying()) {
           triggered = false;
           continue;
         }
@@ -60,12 +80,12 @@ public class Watchdog implements Runnable {
         long ageSec = (System.currentTimeMillis() - last) / 1000;
         if (ageSec >= limit && !triggered) {
           triggered = true;
-          LogBus.warn("Watchdog : aucune donnee DMX depuis " + ageSec
-              + " s - blackout de securite envoye.");
+          LogBus.warn("Watchdog : aucune donnée DMX depuis " + ageSec
+              + " s - blackout de sécurité envoyé.");
           core.blackoutAll();
         } else if (ageSec < limit && triggered) {
           triggered = false;
-          LogBus.info("Watchdog : signal DMX retabli.");
+          LogBus.info("Watchdog : signal DMX rétabli.");
         }
       } catch (InterruptedException e) {
         return;

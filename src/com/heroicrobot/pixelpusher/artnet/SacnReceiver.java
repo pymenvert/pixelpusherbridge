@@ -3,7 +3,14 @@ package com.heroicrobot.pixelpusher.artnet;
 import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.MulticastSocket;
+import java.net.NetworkInterface;
+import java.net.SocketException;
+import java.util.Collections;
+import java.util.Enumeration;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 
 public class SacnReceiver extends Thread {
@@ -71,8 +78,14 @@ public class SacnReceiver extends Thread {
 		    
 	 }
 	
-	 // Instrumentation PixelPusherBridge : permet de désactiver sACN via la config
+	 // Instrumentation PixelPusherBridge : permet de desactiver sACN via la config
 	 public static volatile boolean enabled = true;
+
+	 // Groupes deja rejoints au moins une fois : addGroup est rappele a chaque
+	 // remappage, et sans cette trace chaque appel reimprimait les memes lignes
+	 // et les memes erreurs "Address already in use". (PixelPusherBridge)
+	 private final Set<InetAddress> joinedGroups =
+	     Collections.newSetFromMap(new ConcurrentHashMap<InetAddress, Boolean>());
 
 	 public void addGroup(InetAddress group) {
 		 if (!enabled)
@@ -81,12 +94,49 @@ public class SacnReceiver extends Thread {
 			 System.err.println("sACN: socket indisponible, groupe " + group + " ignore (redemarre l'app pour activer le sACN).");
 			 return;
 		 }
+		 // L'adhesion se faisait via joinGroup(InetAddress) : cette forme laisse
+		 // l'OS choisir UNE seule interface, au moment de l'appel. Montage typique
+		 // en spectacle : la machine demarre en wifi, l'operateur branche ensuite
+		 // le cable du reseau lumiere (ou le DHCP change l'adresse). Les groupes
+		 // restent rattaches a l'ancienne interface, plus une seule trame sACN
+		 // n'arrive, et rien ne le signale (le thread reste vivant, bloque sur
+		 // receive). On adhere donc explicitement sur TOUTES les interfaces
+		 // actives compatibles multicast. (PixelPusherBridge)
+		 boolean premiere = joinedGroups.add(group);
+		 int rejoints = 0;
 		 try {
-			System.out.println("sACN: Joining multicast group "+group);
-			mcSocket.joinGroup(group);
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
+			 Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+			 while (interfaces != null && interfaces.hasMoreElements()) {
+				 NetworkInterface ni = interfaces.nextElement();
+				 try {
+					 if (ni.isLoopback() || !ni.isUp() || !ni.supportsMulticast())
+						 continue;
+					 if (!ni.getInetAddresses().hasMoreElements())
+						 continue;
+					 mcSocket.joinGroup(new InetSocketAddress(group, SACN_PORT), ni);
+					 rejoints++;
+				 } catch (Exception e) {
+					 // Interface qui refuse le groupe, ou groupe deja rejoint sur
+					 // celle-ci (cas normal a chaque remappage) : on continue.
+				 }
+			 }
+		 } catch (SocketException e) {
+			 System.err.println("sACN: enumeration des interfaces impossible : " + e);
+		 }
+		 if (rejoints == 0 && premiere) {
+			 // Aucune interface n'a accepte : on retombe sur la forme historique.
+			 try {
+				 mcSocket.joinGroup(group);
+				 rejoints = 1;
+			 } catch (IOException e) {
+				 System.err.println("sACN: adhesion au groupe " + group + " impossible : " + e);
+				 joinedGroups.remove(group);
+			 }
+		 }
+		 if (premiere) {
+			 System.out.println("sACN: groupe multicast " + group + " rejoint sur "
+					 + rejoints + " interface(s).");
+		 }
 	 }
 	 
 	 private void update_channel(int universe, int channel, int value) {
@@ -175,10 +225,18 @@ public class SacnReceiver extends Thread {
 
 		      int universe = ((buf[114] & 0xff) | ((buf[113] & 0xff) << 8));
 		      dmxPackets.incrementAndGet();
-		      ArtNetReceiver.universeLastSeen.put(Integer.valueOf(universe), Long.valueOf(System.currentTimeMillis()));
-		      byte[] frameCopy = new byte[512];
-		      System.arraycopy(buf, 126, frameCopy, 0, canaux);
-		      ArtNetReceiver.lastFrame.put(Integer.valueOf(universe), frameCopy);
+		      // Suivi borne du moniteur, voir ArtNetReceiver.canTrack : sans borne
+		      // une source defaillante remplissait ces deux tables sans limite.
+		      // (PixelPusherBridge)
+		      Integer uKey = Integer.valueOf(universe);
+		      if (ArtNetReceiver.canTrack(ArtNetReceiver.universeLastSeen, uKey)) {
+		        ArtNetReceiver.universeLastSeen.put(uKey, Long.valueOf(System.currentTimeMillis()));
+		      }
+		      if (ArtNetReceiver.canTrack(ArtNetReceiver.lastFrame, uKey)) {
+		        byte[] frameCopy = new byte[512];
+		        System.arraycopy(buf, 126, frameCopy, 0, canaux);
+		        ArtNetReceiver.lastFrame.put(uKey, frameCopy);
+		      }
 		      DmxTap t = ArtNetReceiver.tap;
 		      if (t != null) {
 		        try {

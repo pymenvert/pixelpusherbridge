@@ -53,7 +53,7 @@ public class Main {
     // Toute exception non attrapee finit dans les logs au lieu de disparaitre.
     Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
       public void uncaughtException(Thread t, Throwable e) {
-        LogBus.error("Exception non geree dans le thread '" + t.getName() + "' : " + e);
+        LogBus.error("Exception non gérée dans le thread '" + t.getName() + "' : " + e);
         e.printStackTrace();
       }
     });
@@ -67,7 +67,10 @@ public class Main {
 
     cfg = AppConfig.load();
 
-    // options ligne de commande : --port NNNN, --restart-delay MS, --no-browser
+    // Options ligne de commande : --port NNNN, --restart-delay MS, --no-browser.
+    // REGLE : une option de ligne de commande ne doit jamais etre ecrite dans
+    // AppConfig, qui est persiste (et photographie par les presets). Elle vaut
+    // pour le lancement courant seulement -> setWebPortOverride, pas setWebPort.
     boolean noBrowser = false;
     boolean isRestart = false;
     for (String a : args) {
@@ -81,17 +84,23 @@ public class Main {
     for (int i = 0; i < args.length - 1; i++) {
       if ("--port".equals(args[i])) {
         try {
-          cfg.setWebPort(Integer.parseInt(args[i + 1]));
+          int p = Integer.parseInt(args[i + 1].trim());
+          if (cfg.setWebPortOverride(p)) {
+            LogBus.info("Option --port " + p + " : port forcé pour ce lancement uniquement "
+                + "(la configuration enregistrée n'est pas modifiée).");
+          } else {
+            LogBus.warn("Option --port hors plage 1-65535, ignorée : " + args[i + 1]);
+          }
         } catch (NumberFormatException e) {
-          LogBus.warn("Option --port invalide, ignoree : " + args[i + 1]);
+          LogBus.warn("Option --port invalide, ignorée : " + args[i + 1]);
         }
       } else if ("--restart-delay".equals(args[i])) {
         try {
           long ms = Long.parseLong(args[i + 1]);
-          LogBus.info("Redemarrage : attente de " + ms + " ms le temps que l'ancienne instance libere les ports...");
+          LogBus.info("Redémarrage : attente de " + ms + " ms le temps que l'ancienne instance libère les ports...");
           Thread.sleep(Math.min(ms, 10000));
         } catch (NumberFormatException e) {
-          LogBus.warn("Option --restart-delay invalide, ignoree.");
+          LogBus.warn("Option --restart-delay invalide, ignorée.");
         } catch (InterruptedException e) {
           // on continue
         }
@@ -104,7 +113,7 @@ public class Main {
     if (!isRestart) {
       String existing = detectRunningInstance(cfg.getWebPort());
       if (existing != null) {
-        LogBus.info("Une instance de PixelPusher Bridge tourne deja (" + existing + ").");
+        LogBus.info("Une instance de PixelPusher Bridge tourne déjà (" + existing + ").");
         LogBus.info("Pas de doublon : ouverture de l'interface existante, puis fermeture.");
         if (!noBrowser) {
           openBrowser(existing);
@@ -118,7 +127,7 @@ public class Main {
     try {
       core.start(cfg.getColourOrder(), cfg.isPacking(), cfg.isDebug(), cfg.isSacnEnabled());
     } catch (RuntimeException e) {
-      LogBus.error("Echec du demarrage du coeur Art-Net : " + e);
+      LogBus.error("Échec du démarrage du cœur Art-Net : " + e);
       e.printStackTrace();
     }
 
@@ -140,22 +149,25 @@ public class Main {
       }
       DeviceRegistry.useOverallBrightnessScale = cfg.getBrightness() < 0.999;
       DeviceRegistry.setOverallBrightnessScale(cfg.getBrightness());
-      LogBus.info("Reglages : frameLimit=" + cfg.getFrameLimit() + " Hz, autoThrottle="
+      LogBus.info("Réglages : frameLimit=" + cfg.getFrameLimit() + " Hz, autoThrottle="
           + cfg.isAutoThrottle() + ", extraDelay=" + cfg.getExtraDelayMs()
-          + " ms, luminosite=" + Math.round(cfg.getBrightness() * 100) + "%, watchdog="
+          + " ms, luminosité=" + Math.round(cfg.getBrightness() * 100) + "%, watchdog="
           + (cfg.getWatchdogSec() > 0 ? cfg.getWatchdogSec() + " s" : "off")
           + ", limite de puissance="
           + (cfg.getPowerLimitAmps() > 0 ? cfg.getPowerLimitAmps() + " A" : "off"));
     }
 
-    // 3. scenarios de test + watchdog de signal
+    // 3. scenarios de test + enregistreur + watchdog de signal
     tests = new TestPatterns(core);
     tests.start();
+    recorder = new Recorder(core);
     Watchdog watchdog = new Watchdog(cfg, core, tests);
+    // le watchdog doit connaitre le lecteur : pendant une lecture de sequence
+    // aucune trame n'arrive du reseau, ce n'est pas une perte de signal
+    watchdog.setRecorder(recorder);
     watchdog.start();
 
-    // 4. enregistreur de sequences + serveur web
-    recorder = new Recorder(core);
+    // 4. serveur web
     StatusService status = new StatusService(cfg, core, tests);
     status.setWatchdog(watchdog);
     status.setRecorder(recorder);
@@ -169,13 +181,13 @@ public class Main {
       status.setWebPort(web.getBoundPort());
       diagnostic.setWebPort(web.getBoundPort());
     } catch (IOException e) {
-      LogBus.error("Impossible de demarrer le serveur web : " + e);
+      LogBus.error("Impossible de démarrer le serveur web : " + e);
       LogBus.error("Le bridge Art-Net continue de fonctionner sans interface.");
     }
 
     Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
       public void run() {
-        LogBus.info("Arret de PixelPusher Bridge.");
+        LogBus.info("Arrêt de PixelPusher Bridge.");
       }
     }, "shutdown-log"));
 
@@ -204,9 +216,10 @@ public class Main {
       return;
     }
     shutdownScheduled = true;
-    LogBus.info(restart ? "Redemarrage du bridge demande..." : "Arret du bridge demande...");
+    LogBus.info(restart ? "Redémarrage du bridge demandé..." : "Arrêt du bridge demandé...");
     Thread t = new Thread(new Runnable() {
       public void run() {
+        boolean coupeIci = false; // vrai si c'est nous qui avons coupe l'entree DMX
         try {
           Thread.sleep(400); // laisse partir la reponse HTTP
           if (recorder != null) {
@@ -219,12 +232,27 @@ public class Main {
             if (tests != null && tests.isEnabled()) {
               tests.configure(false, null, 0, 1, 1, 0, 0);
             }
+            // Couper l'entree AVANT d'ecrire les zeros : si la console continue
+            // d'emettre, la trame suivante rallume tout avant que les CardThread
+            // n'aient serialise le noir, et on confirmerait l'envoi d'une trame
+            // qui n'a rien de noir (piege n.12 de DEVNOTES).
+            core.setMuteDmx(true);
+            coupeIci = true;
             core.blackoutAll();
-            Thread.sleep(250); // laisse partir la trame noire
+            awaitBlackoutSent();
           }
           if (restart) {
             if (!relaunch()) {
               LogBus.error("Relance impossible : le bridge reste en marche.");
+              // on avait coupe l'entree DMX pour garantir la trame noire :
+              // puisque l'on continue, il faut imperativement la rendre a la
+              // console, sinon le bridge resterait vivant mais sourd. On ne le
+              // fait QUE si c'est nous qui l'avons coupee : un blackout
+              // d'urgence verrouille ne doit pas etre leve par cet echec.
+              if (coupeIci && core != null) {
+                core.setMuteDmx(false);
+                LogBus.info("Entrée DMX rétablie, la console reprend la main.");
+              }
               shutdownScheduled = false;
               return;
             }
@@ -236,6 +264,75 @@ public class Main {
     }, "shutdown");
     t.setDaemon(true);
     t.start();
+  }
+
+  /**
+   * Attend que la trame noire soit reellement partie sur le reseau.
+   *
+   * blackoutAll() se contente d'ecrire des zeros dans les objets Strip :
+   * l'emission UDP est le travail des CardThread, a la cadence configuree. Le
+   * delai fixe de 250 ms qui suivait ne suffisait pas des que frameLimit descend
+   * bas ou qu'extraDelay monte (l'application autorise 1 Hz et 1000 ms) : la JVM
+   * sortait avant la trame noire et les rubans restaient figes sur la derniere
+   * image, en pleine salle. On surveille donc le compteur de paquets reellement
+   * emis par les CardThread avant de rendre la main.
+   */
+  private static void awaitBlackoutSent() {
+    int rubans = 0;
+    int pushers = 0;
+    try {
+      DeviceRegistry reg = core.getRegistry();
+      if (reg != null) {
+        if (reg.getStrips() != null) {
+          rubans = reg.getStrips().size();
+        }
+        if (reg.getPushers() != null) {
+          pushers = reg.getPushers().size();
+        }
+      }
+    } catch (RuntimeException ignored) {
+      // registre indisponible : on retombe sur l'attente minimale
+    }
+    if (rubans == 0 || pushers == 0) {
+      return; // aucun ruban mappe : il n'y a rien a eteindre
+    }
+    // Cible : un datagramme par pusher, PAS un par ruban. Un CardThread empile
+    // plusieurs rubans dans le meme datagramme (stripPerPacket) et ne renvoie
+    // pas les rubans « non touches » : viser un paquet par ruban ne serait
+    // jamais atteint des qu'un pusher en porte plus qu'il n'en tient dans un
+    // datagramme, et l'arret trainerait toute l'attente maximale avant de
+    // logger un faux « non confirme ». blackoutAll() marque tous les rubans
+    // touches, donc chaque pusher emet au moins un paquet a la trame suivante.
+    long attendus = pushers;
+    long avant = com.heroicrobot.dropbit.devices.pixelpusher.CardThread.totalPacketsSent.get();
+    long periodeMs = 1000L / Math.max(1, cfg.getFrameLimit()) + cfg.getExtraDelayMs();
+    long attenteMax = Math.min(2500L, Math.max(300L, 4L * periodeMs));
+    long limite = System.currentTimeMillis() + attenteMax;
+    boolean envoye = false;
+    while (System.currentTimeMillis() < limite) {
+      if (com.heroicrobot.dropbit.devices.pixelpusher.CardThread.totalPacketsSent.get()
+          - avant >= attendus) {
+        envoye = true;
+        break;
+      }
+      try {
+        Thread.sleep(20);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return;
+      }
+    }
+    try {
+      Thread.sleep(100); // marge pour que les derniers datagrammes quittent la pile reseau
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
+    if (envoye) {
+      LogBus.info("Trame noire confirmée envoyée aux pushers.");
+    } else {
+      LogBus.warn("Blackout non confirmé avant l'arrêt (aucun paquet émis en "
+          + attenteMax + " ms) : vérifie l'état des rubans.");
+    }
   }
 
   /** Relance une nouvelle instance de l'application (Mac + Windows). */
@@ -253,13 +350,46 @@ public class Main {
       if (!javaBin.isFile()) {
         javaBin = new File(javaHome, windows ? "bin\\java.exe" : "bin/java");
       }
+      // La nouvelle instance attend RESTART_DELAY_MS avant d'ouvrir le moindre
+      // port : cela laisse a celle-ci le temps de verifier qu'elle a survecu,
+      // PUIS de liberer ses ports. Ne pas descendre en dessous de
+      // CHILD_CHECK_MS + une bonne marge, sinon les deux instances se
+      // disputeraient le port Art-Net et le port web.
       ProcessBuilder pb = new ProcessBuilder(
           javaBin.getAbsolutePath(), "-jar", jar.getAbsolutePath(),
-          "--restart-delay", "1500", "--no-browser");
-      pb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
-      pb.redirectError(ProcessBuilder.Redirect.DISCARD);
-      pb.start();
-      LogBus.info("Nouvelle instance lancee, arret de celle-ci.");
+          "--restart-delay", String.valueOf(RESTART_DELAY_MS), "--no-browser");
+      // Les sorties de l'enfant allaient dans Redirect.DISCARD : une mort
+      // immediate (jar corrompu, classpath) ne laissait aucune trace nulle part
+      // et il ne restait plus AUCUN bridge. On les garde dans un fichier.
+      File trace = new File(AppConfig.configDir(), "relance.log");
+      pb.redirectErrorStream(true);
+      pb.redirectOutput(ProcessBuilder.Redirect.to(trace));
+      Process child;
+      try {
+        child = pb.start();
+      } catch (IOException io) {
+        // fichier de trace impossible (dossier en lecture seule) : on relance
+        // quand meme, la relance prime sur la tracabilite
+        pb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
+        child = pb.start();
+      }
+
+      // Verification minimale : l'enfant est-il encore vivant apres un instant ?
+      // On ne peut pas attendre qu'il reponde sur son port web, car il ne peut
+      // pas le prendre tant que celle-ci ne l'a pas relache.
+      boolean mort;
+      try {
+        mort = child.waitFor(CHILD_CHECK_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
+      } catch (InterruptedException ie) {
+        Thread.currentThread().interrupt();
+        mort = false;
+      }
+      if (mort) {
+        LogBus.error("Relance : la nouvelle instance s'est arrêtée immédiatement (code "
+            + child.exitValue() + "). Détails dans " + trace.getAbsolutePath());
+        return false;
+      }
+      LogBus.info("Nouvelle instance lancée, arrêt de celle-ci.");
       return true;
     } catch (Exception e) {
       LogBus.error("Relance impossible : " + e);
@@ -268,11 +398,23 @@ public class Main {
   }
 
   /**
-   * Cherche une instance deja active sur le port configure (et les 10 suivants,
-   * au cas ou elle aurait glisse de port). Retourne son URL, ou null.
+   * Delai laisse a la nouvelle instance avant qu'elle ouvre ses ports, et duree
+   * pendant laquelle on verifie qu'elle n'est pas morte aussitot.
+   */
+  private static final int RESTART_DELAY_MS = 3000;
+  private static final int CHILD_CHECK_MS = 1200;
+
+  /**
+   * Cherche une instance deja active sur le port configure (et les suivants, au
+   * cas ou elle aurait glisse de port). Retourne son URL, ou null.
+   *
+   * La plage balayee ici DOIT rester identique a celle de WebServer.bind()
+   * (voir AppConfig.PORT_SCAN_RANGE) : c'est cette coincidence, et elle seule,
+   * qui garantit le verrou d'instance unique. Elargir une boucle sans l'autre
+   * laisserait demarrer un second bridge qui pousserait vers les memes pushers.
    */
   private static String detectRunningInstance(int basePort) {
-    for (int p = basePort; p <= basePort + 10; p++) {
+    for (int p = basePort; p <= basePort + AppConfig.PORT_SCAN_RANGE; p++) {
       try {
         java.net.HttpURLConnection c = (java.net.HttpURLConnection)
             new java.net.URL("http://127.0.0.1:" + p + "/api/status").openConnection();
@@ -316,7 +458,7 @@ public class Main {
         for (String p : candidates) {
           if (new File(p).isFile()) {
             Runtime.getRuntime().exec(new String[] { p, "--app=" + url });
-            LogBus.info("Interface ouverte en fenetre d'application (" + new File(p).getName() + ").");
+            LogBus.info("Interface ouverte en fenêtre d'application (" + new File(p).getName() + ").");
             return;
           }
         }
@@ -325,13 +467,13 @@ public class Main {
         if (new File("/Applications/Google Chrome.app").exists()) {
           Runtime.getRuntime().exec(new String[] {
               "open", "-na", "Google Chrome", "--args", "--app=" + url });
-          LogBus.info("Interface ouverte en fenetre d'application (Chrome).");
+          LogBus.info("Interface ouverte en fenêtre d'application (Chrome).");
           return;
         }
         if (new File("/Applications/Microsoft Edge.app").exists()) {
           Runtime.getRuntime().exec(new String[] {
               "open", "-na", "Microsoft Edge", "--args", "--app=" + url });
-          LogBus.info("Interface ouverte en fenetre d'application (Edge).");
+          LogBus.info("Interface ouverte en fenêtre d'application (Edge).");
           return;
         }
         Runtime.getRuntime().exec(new String[] { "open", url });

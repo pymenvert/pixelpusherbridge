@@ -25,15 +25,30 @@
     position:sticky;top:0;z-index:10}
   .logo{width:34px;height:34px;border-radius:9px;flex:none;
     background:conic-gradient(from 200deg,#f87171,#fbbf24,#34d399,#22d3ee,#6366f1,#f87171)}
-  header h1{font-size:16px;margin:0;flex:1}
-  #dot{width:12px;height:12px;border-radius:50%;background:var(--err);flex:none}
-  #dot.ok{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+  header h1{font-size:16px;margin:0;flex:1;min-width:0;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* Badge d'etat : un point de couleur seul est invisible pour un daltonien et
+     illisible a bout de bras dans le noir. On garde le point, mais le mot est
+     toujours affiche a cote. */
+  #conn{display:flex;align-items:center;gap:6px;flex:none;padding:5px 10px;
+    border-radius:999px;border:1px solid var(--border);background:var(--panel2);
+    font-size:12px;font-weight:700;letter-spacing:.3px;color:var(--muted)}
+  #conn.ok{color:var(--ok)}
+  #conn.ko{color:var(--err)}
+  #dot{width:9px;height:9px;border-radius:50%;background:currentColor;flex:none}
+  #conn.ok #dot{box-shadow:0 0 8px var(--ok)}
   main{padding:14px;max-width:520px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
   .card{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:16px}
   .lbl{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.7px;
     font-weight:600;margin-bottom:10px}
   #stateLine{font-size:14px;color:var(--muted);line-height:1.6}
   #stateLine b{color:var(--text)}
+  /* Quand le bridge ne repond plus, les chiffres affiches sont perimes : on les
+     estompe et on dit depuis combien de temps, au lieu de laisser croire que
+     tout va bien. */
+  #stateLine.stale{opacity:.4}
+  #staleLine{display:none;font-size:13px;color:var(--warn);margin-top:8px;line-height:1.5}
+  #staleLine.show{display:block}
   .bigbtn{display:block;width:100%;padding:20px;border:none;border-radius:16px;
     font-size:19px;font-weight:700;font-family:inherit;cursor:pointer;
     background:linear-gradient(135deg,#7f1d1d,#b91c1c);color:#fff;
@@ -61,16 +76,15 @@
     background:var(--muted);top:3px;left:4px;transition:.2s}
   .switch input:checked + .sl{background:rgba(99,102,241,.5);border-color:var(--acc)}
   .switch input:checked + .sl:before{transform:translateX(21px);background:#fff}
-  .list{display:flex;flex-direction:column;gap:8px}
+  .list{display:flex;flex-direction:column;gap:10px}
   .item{display:flex;align-items:center;gap:10px;background:var(--panel2);
-    border:1px solid var(--border);border-radius:12px;padding:11px 13px;font-size:14.5px}
+    border:1px solid var(--border);border-radius:12px;padding:12px 13px;font-size:14.5px}
   .item .n{flex:1;font-weight:550;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   /* 44 px : taille minimale recommandee pour une cible tactile. En dessous, on
      rate le bouton une fois sur trois - inacceptable pour « arreter la
      sequence » en pleine representation. */
   .item button{border:none;border-radius:9px;padding:11px 16px;font-family:inherit;
     font-weight:650;font-size:13px;cursor:pointer;min-height:44px;min-width:44px}
-  .item{padding:12px 13px}
   button:focus-visible,input:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(99,102,241,.5)}
   @media(prefers-reduced-motion:reduce){
     *,*:before,*:after{animation-duration:.001ms !important;transition-duration:.001ms !important}
@@ -78,7 +92,7 @@
   .item .play{background:rgba(52,211,153,.15);color:var(--ok)}
   .item .stop{background:rgba(248,113,113,.15);color:var(--err)}
   .item .load{background:rgba(99,102,241,.2);color:#a5b4fc}
-  .empty{color:var(--muted);font-size:13.5px}
+  .empty{color:var(--muted);font-size:14px;line-height:1.5}
   .banner{display:none;border-radius:12px;padding:10px 14px;font-size:13.5px;
     background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.4);color:var(--warn)}
   .banner.show{display:block}
@@ -95,7 +109,7 @@
 <header>
   <div class="logo"></div>
   <h1>PixelPusher Bridge</h1>
-  <div id="dot"></div>
+  <div id="conn" role="status" aria-live="polite"><span id="dot"></span><span id="connTxt">Connexion…</span></div>
 </header>
 <main>
   <div id="banner" class="banner"></div>
@@ -103,6 +117,7 @@
   <div class="card">
     <div class="lbl">État</div>
     <div id="stateLine">Connexion au bridge…</div>
+    <div id="staleLine"></div>
   </div>
 
   <button class="bigbtn" id="boBtn" onclick="blackout()">&#9899;&nbsp; BLACKOUT</button>
@@ -147,7 +162,7 @@
   </div>
 
   <a class="desktop" href="/">Ouvrir l'interface complète &rarr;</a>
-  <div style="text-align:center;color:#3d4759;font-size:10.5px;margin-top:10px">
+  <div style="text-align:center;color:var(--muted);font-size:12px;margin-top:12px">
     PixelPusher Bridge — © 2026 Pierre Yves Mansour · Collectif WSK
   </div>
 </main>
@@ -168,10 +183,26 @@ function toast(m){
 function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
 
 /* ---------- état ---------- */
-var fails=0, touched=false, curPattern="solid", playingName="";
+var fails=0, touched=false, curPattern="solid", playingName="", lastOk=0;
+/* Etat de connexion : point + libelle, jamais la couleur seule.
+   #conn est une zone aria-live : reecrire son texte identique toutes les 2 s
+   ferait relire « Connecte » en boucle par un lecteur d'ecran. On ne touche
+   au DOM que si l'etat a reellement change. */
+var connLabel="";
+function setConn(ok,txt){
+  if(txt===connLabel)return;
+  connLabel=txt;
+  var c=$("conn");
+  c.classList.toggle("ok",ok);
+  c.classList.toggle("ko",!ok);
+  $("connTxt").textContent=txt;
+}
 function refresh(){
   fetch("/api/status",{cache:"no-store"}).then(function(r){return r.json();}).then(function(s){
-    fails=0;$("dot").classList.add("ok");
+    fails=0;lastOk=Date.now();
+    setConn(true,"Connecté");
+    $("stateLine").classList.remove("stale");
+    $("staleLine").classList.remove("show");
     var line="<b>"+s.pushers.length+"</b> PixelPusher(s) · <b>"+s.artnetPps+"</b> pqt/s Art-Net";
     if(s.health&&!s.health.dmxDataRecent&&!s.testMode&&!(s.recorder&&s.recorder.playing))
       line+=" · <span style='color:var(--warn)'>pas de données DMX</span>";
@@ -190,7 +221,19 @@ function refresh(){
     playingName=(s.recorder&&s.recorder.playing)?s.recorder.playName:"";
     renderRecButtons();
   }).catch(function(){
-    fails++;if(fails>=3)$("dot").classList.remove("ok");
+    fails++;
+    if(fails<3)return;
+    /* Les chiffres a l'ecran datent du dernier echange reussi : on le dit.
+       Si aucun echange n'a jamais abouti (lastOk vaut 0), il n'y a pas de
+       valeurs figees a dater : on le formule autrement. */
+    setConn(false,"Déconnecté");
+    $("stateLine").classList.add("stale");
+    var sl=$("staleLine");
+    sl.textContent=lastOk
+      ? "Bridge injoignable — valeurs figées depuis "
+        +Math.max(1,Math.round((Date.now()-lastOk)/1000))+" s."
+      : "Bridge injoignable — aucune réponse depuis l’ouverture de cette page.";
+    sl.classList.add("show");
   });
 }
 setInterval(refresh,2000);refresh();
@@ -242,55 +285,74 @@ function selBtn(){
 }
 
 /* ---------- presets ---------- */
+/* Le listener est pose une fois pour toutes sur le conteneur : un re-rendu du
+   HTML pendant que le doigt est pose ne peut donc pas avaler le tap. */
+$("presetList").addEventListener("click",function(ev){
+  var b=ev.target.closest?ev.target.closest("button.load"):null;
+  if(!b)return;
+  var n=b.dataset.n;
+  post("/api/presets",{action:"load",name:n}).then(function(r){
+    toast(r.ok?"Preset chargé : "+n:"Erreur");
+  }).catch(function(){toast("Bridge injoignable");});
+});
+var lastPresetState=null;
 function loadPresets(){
   fetch("/api/presets").then(function(r){return r.json();}).then(function(d){
+    var list=d.presets||[];
+    /* Empreinte : on ne reecrit le HTML que si la liste a reellement change. */
+    var sig=list.join("|");
+    if(sig===lastPresetState)return;
+    lastPresetState=sig;
     var el=$("presetList");
-    if(!d.presets.length){el.innerHTML='<span class="empty">Aucun preset — crée-les depuis l’interface complète.</span>';return;}
-    el.innerHTML=d.presets.map(function(n){
+    if(!list.length){el.innerHTML='<span class="empty">Aucun preset — crée-les depuis l’interface complète.</span>';return;}
+    el.innerHTML=list.map(function(n){
       return '<div class="item"><span class="n">'+esc(n)+'</span>'
         +'<button class="load" data-n="'+esc(n)+'">Charger</button></div>';
     }).join("");
-    el.querySelectorAll(".load").forEach(function(b){
-      b.addEventListener("click",function(){
-        post("/api/presets",{action:"load",name:b.dataset.n}).then(function(r){
-          toast(r.ok?"Preset chargé : "+b.dataset.n:"Erreur");
-        });
-      });
-    });
-  });
+  }).catch(function(){});
 }
 loadPresets();setInterval(loadPresets,15000);
 
 /* ---------- séquences ---------- */
-var recData=[];
+var recData=[], lastRecState=null;
 function loadRecs(){
   fetch("/api/recorder").then(function(r){return r.json();}).then(function(d){
-    recData=d.recordings;renderRecButtons();
-  });
+    recData=d.recordings||[];renderRecButtons();
+  }).catch(function(){});
 }
+/* Meme principe que pour les presets : un seul listener, pose une fois. */
+$("recList").addEventListener("click",function(ev){
+  var b=ev.target.closest?ev.target.closest("button"):null;
+  if(!b)return;
+  if(b.classList.contains("play")){
+    var n=b.dataset.n;
+    post("/api/recorder",{action:"play",name:n,loop:true})
+      .then(function(){toast("Lecture : "+n);refresh();})
+      .catch(function(){toast("Bridge injoignable");});
+  }else if(b.classList.contains("stop")){
+    post("/api/recorder",{action:"stopPlay"})
+      .then(function(){toast("Lecture arrêtée");refresh();})
+      .catch(function(){toast("Bridge injoignable");});
+  }
+});
 function renderRecButtons(){
   var el=$("recList");
+  /* refresh() appelle cette fonction toutes les 2 s : sans cette empreinte, le
+     HTML serait reecrit sans arret et un appui en cours serait annule (un
+     element remplace entre le touchstart et le touchend n'emet pas de click). */
+  var sig=recData.map(function(r){return r.name+":"+r.durationSec;}).join("|")+"#"+playingName;
+  if(sig===lastRecState)return;
+  lastRecState=sig;
   if(!recData.length){el.innerHTML='<span class="empty">Aucune séquence — enregistre depuis l’interface complète.</span>';return;}
   el.innerHTML=recData.map(function(rec){
     var isPlaying=rec.name===playingName;
     return '<div class="item"><span class="n">'+esc(rec.name)
-      +' <span style="color:var(--muted);font-size:12px">'+rec.durationSec+' s</span></span>'
+      +' <span style="color:var(--muted);font-size:12px">'+esc(rec.durationSec)+' s</span></span>'
       +(isPlaying
         ?'<button class="stop" data-n="'+esc(rec.name)+'">&#9632; Stop</button>'
         :'<button class="play" data-n="'+esc(rec.name)+'">&#9654; Boucle</button>')
       +'</div>';
   }).join("");
-  el.querySelectorAll(".play").forEach(function(b){
-    b.addEventListener("click",function(){
-      post("/api/recorder",{action:"play",name:b.dataset.n,loop:true})
-        .then(function(){toast("Lecture : "+b.dataset.n);refresh();});
-    });
-  });
-  el.querySelectorAll(".stop").forEach(function(b){
-    b.addEventListener("click",function(){
-      post("/api/recorder",{action:"stopPlay"}).then(function(){toast("Lecture arrêtée");refresh();});
-    });
-  });
 }
 loadRecs();setInterval(loadRecs,15000);
 </script>

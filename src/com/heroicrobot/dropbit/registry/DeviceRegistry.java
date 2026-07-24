@@ -74,6 +74,10 @@ public final class DeviceRegistry extends Observable {
 
   private TreeSet<PixelPusher> sortedPushers;
 
+  // Instantane immuable de sortedPushers, lu sans verrou par getPushers().
+  // Republie a chaque mutation par refreshPushersSnapshot(). (PixelPusherBridge)
+  private volatile List<PixelPusher> pushersSnapshot = new ArrayList<PixelPusher>();
+
 
   public Boolean hasDeviceExpiryTask=false;
 
@@ -321,7 +325,18 @@ public final class DeviceRegistry extends Observable {
    * @return
    */
   public int lastSeen(PixelPusher p) {
-    return (int)(System.nanoTime() - pusherLastSeenMap.get(p.getMacAddress()) ) / 1000000000;
+    // Le cast (int) portait sur la SOUSTRACTION en nanosecondes, pas sur le
+    // quotient : au-dela de 2,147 s l'ecart depassait Integer.MAX_VALUE et le
+    // resultat devenait negatif (3 s -> -1). Le tableau de bord affichait
+    // "vu il y a -1 s" et l'alerte "pusher instable" (lastSeen > 3) ne pouvait
+    // jamais se declencher, precisement sur la plage utile. On divise d'abord,
+    // on convertit ensuite. Le cas ou le pusher a ete retire entre-temps rend
+    // -1 au lieu de lever une NullPointerException. (PixelPusherBridge)
+    Long vu = pusherLastSeenMap.get(p.getMacAddress());
+    if (vu == null) {
+      return -1;
+    }
+    return (int)((System.nanoTime() - vu.longValue()) / 1000000000L);
   }
   
   /**
@@ -329,11 +344,32 @@ public final class DeviceRegistry extends Observable {
    * @return List of PixelPusher
    */
   public List<PixelPusher> getPushers() {
-    List<PixelPusher> pushers = new CopyOnWriteArrayList<PixelPusher>();
-    for (PixelPusher p : this.sortedPushers)
-        pushers.add(p);
-    
-    return pushers;
+    // Cette methode iterait directement sortedPushers, un TreeSet modifie par le
+    // thread de discovery (addNewPusher) et par la tache d'expiration
+    // (expireDevice) : un pusher qui apparaissait ou disparaissait pendant le
+    // sondage du tableau de bord (1 Hz) ou pendant un rendu de motif de test
+    // (30 Hz) levait une ConcurrentModificationException.
+    //
+    // On ne peut PAS y prendre updateLock comme le font ses soeurs : cette
+    // methode est aussi appelee indirectement depuis notifyObservers(), qui
+    // s'execute deja sous le verrou (addNewPusher -> notifyObservers ->
+    // PixelPusherObserver.update -> generateMapping -> getPushers). Le semaphore
+    // n'a qu'un permis et n'est pas reentrant : ce serait un auto-blocage
+    // definitif des la premiere decouverte de pusher.
+    //
+    // On lit donc un instantane immuable, republie a chaque mutation de
+    // sortedPushers (toujours sous le verrou, voir refreshPushersSnapshot).
+    // Aucun verrou pris ici, aucune iteration concurrente possible.
+    // (PixelPusherBridge)
+    return new CopyOnWriteArrayList<PixelPusher>(pushersSnapshot);
+  }
+
+  /**
+   * Reconstruit l'instantane lu par getPushers(). A appeler apres chaque
+   * mutation de sortedPushers, en detenant updateLock. (PixelPusherBridge)
+   */
+  private void refreshPushersSnapshot() {
+    this.pushersSnapshot = new ArrayList<PixelPusher>(this.sortedPushers);
   }
   
   /**
@@ -362,16 +398,29 @@ public final class DeviceRegistry extends Observable {
   public List<PixelPusher> getPushers(InetAddress addr) {
     updateLock.acquireUninterruptibly();
     try {
-      List<PixelPusher> pushers = new CopyOnWriteArrayList<PixelPusher>();
-      for (PixelPusher p : this.sortedPushers)
-          if (p.getIp().equals(addr))
-            pushers.add(p);
-      return pushers;
+      return getPushersUnlocked(addr);
     } finally {
       updateLock.release(); // voir getStrips (PixelPusherBridge)
     }
   }
-  
+
+  /**
+   * Variante sans verrou, reservee aux appelants qui detiennent DEJA updateLock.
+   * Le semaphore n'a qu'un permis et n'est pas reentrant : addNewPusher (appele
+   * sous le verrou de receive()) et expireDevice (appele sous celui de la tache
+   * d'expiration) s'auto-bloquaient definitivement des qu'un pusher multicast
+   * apparaissait ou expirait : plus aucune annonce n'etait traitee et l'arret
+   * propre devenait impossible. Le corps est celui de getPushers(InetAddress).
+   * (PixelPusherBridge)
+   */
+  private List<PixelPusher> getPushersUnlocked(InetAddress addr) {
+    List<PixelPusher> pushers = new CopyOnWriteArrayList<PixelPusher>();
+    for (PixelPusher p : this.sortedPushers)
+        if (p.getIp().equals(addr))
+          pushers.add(p);
+    return pushers;
+  }
+
   /**
    * Get strips that belong to given group number
    * @param groupNumber
@@ -577,13 +626,16 @@ public final class DeviceRegistry extends Observable {
     // select a new primary.
     if (pusher.isMulticast()) {
       if (pusher.isMulticastPrimary()) {
-        List<PixelPusher> candidates = getPushers(pusher.getIp());
+        // Variante sans verrou : le verrou est deja detenu par l'appelant
+        // (tache d'expiration), voir getPushersUnlocked. (PixelPusherBridge)
+        List<PixelPusher> candidates = getPushersUnlocked(pusher.getIp());
         if (candidates.size() > 0)
            candidates.get(0).setMulticastPrimary(true);
       }
     }
     pusherLastSeenMap.remove(macAddr);
     sortedPushers.remove(pusher);
+    refreshPushersSnapshot(); // avant notifyObservers (PixelPusherBridge)
     this.groupMap.get(pusher.getGroupOrdinal()).removePusher(pusher);
     if (sceneThread.isRunning())
       sceneThread.removePusherThread(pusher);
@@ -716,6 +768,9 @@ public final class DeviceRegistry extends Observable {
     if (logEnabled)
       LOGGER.info("Adding to sorted list");
     sortedPushers.add(pusher);
+    // L'instantane doit contenir le nouveau pusher AVANT notifyObservers, sinon
+    // le mapping regenere par l'observateur l'ignorerait. (PixelPusherBridge)
+    refreshPushersSnapshot();
     if (logEnabled)
       LOGGER.info("Adding to group map");
     if (groupMap.get(pusher.getGroupOrdinal()) != null) {
@@ -734,7 +789,9 @@ public final class DeviceRegistry extends Observable {
     
     if (pusher.getIp().isMulticastAddress()) {
       pusher.setMulticast(true);
-      List<PixelPusher> members = getPushers(pusher.getIp());
+      // Variante sans verrou : receive() detient deja updateLock, voir
+      // getPushersUnlocked. (PixelPusherBridge)
+      List<PixelPusher> members = getPushersUnlocked(pusher.getIp());
       boolean groupHasPrimary = false;
       for (PixelPusher p: members) {
         if (p.isMulticastPrimary())

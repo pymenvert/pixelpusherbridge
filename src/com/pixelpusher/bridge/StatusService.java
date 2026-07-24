@@ -140,7 +140,10 @@ public class StatusService {
     sb.append("\"artnetPacketsTotal\":").append(ArtNetReceiver.dmxPackets.get()).append(',');
     sb.append("\"sacnPacketsTotal\":").append(SacnReceiver.dmxPackets.get()).append(',');
     sb.append("\"testMode\":").append(tests.isEnabled()).append(',');
-    sb.append("\"testPattern\":\"").append(tests.getPattern()).append("\",");
+    // Regle sans exception : toute valeur de type texte passe par Json.esc,
+    // meme quand elle vient d'une liste blanche. Un seul guillemet oublie
+    // rendrait tout le snapshot illisible pour l'interface.
+    sb.append("\"testPattern\":\"").append(Json.esc(tests.getPattern())).append("\",");
     sb.append("\"testLabel\":\"").append(Json.esc(tests.getCurrentLabel())).append("\",");
     sb.append("\"watchdogTriggered\":").append(watchdog != null && watchdog.isTriggered()).append(',');
     sb.append("\"blackoutActive\":").append(blackout != null && blackout.isActive()).append(',');
@@ -255,22 +258,25 @@ public class StatusService {
       .append(com.heroicrobot.dropbit.devices.pixelpusher.CardThread.totalPacketsSent.get())
       .append(',');
 
-    // derniere donnee DMX recue (tous univers confondus)
-    long lastDmx = 0;
-    for (Long v : ArtNetReceiver.universeLastSeen.values()) {
-      if (v.longValue() > lastDmx) {
-        lastDmx = v.longValue();
-      }
-    }
+    // derniere donnee DMX recue (tous univers confondus). Source unique :
+    // Watchdog.lastDmxAt(), deja utilisee par le watchdog et le diagnostic.
+    // Dupliquer ce calcul ferait diverger le voyant du tableau de bord et le
+    // declenchement du blackout de securite.
+    long lastDmx = Watchdog.lastDmxAt();
 
     // checks de sante ("est-ce que tout marche ?")
-    boolean artnetOk = core.isArtnetListening();
+    // Le drapeau ArtNetReceiver.listening est pose une seule fois au bind et
+    // n'est jamais remis a false : si le thread de reception meurt, il resterait
+    // au vert. On exige donc aussi que le thread soit vivant.
+    boolean artnetThreadOk = core.isArtnetThreadAlive();
+    boolean artnetOk = core.isArtnetListening() && artnetThreadOk;
     boolean pushersOk = pusherCount > 0;
     boolean dataOk = lastDmx > 0 && (now - lastDmx) < 10000;
     boolean pushingOk = pushersOk && pushPps > 0;
     sb.append("\"health\":{");
     sb.append("\"webServer\":true,");
     sb.append("\"artnetListening\":").append(artnetOk).append(',');
+    sb.append("\"artnetThreadAlive\":").append(artnetThreadOk).append(',');
     sb.append("\"artnetBindError\":\"").append(Json.esc(core.getArtnetBindError())).append("\",");
     sb.append("\"pushersDetected\":").append(pushersOk).append(',');
     sb.append("\"pusherCount\":").append(pusherCount).append(',');

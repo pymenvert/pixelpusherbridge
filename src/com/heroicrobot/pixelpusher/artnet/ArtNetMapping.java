@@ -30,7 +30,14 @@ public class ArtNetMapping {
   }
   
   public PixelPusherLocation getPixelPusherLocation(int universe, int channel) {
-    ArtNetLocation loc = new ArtNetLocation(universe, channel, getSacnMulticast(universe));
+    // Cle de recherche construite sans adresse multicast : ArtNetLocation
+    // n'utilise QUE universe et channel dans equals() et hashCode(), le champ
+    // multicast n'est lu nulle part dans le projet. L'original appelait
+    // getSacnMulticast() ici, ce qui allouait un byte[4] et fabriquait un
+    // Inet4Address pour rien - a chaque canal, soit 512 fois par paquet DMX, sur
+    // le thread de reception. Resultat de la recherche strictement identique.
+    // (PixelPusherBridge)
+    ArtNetLocation loc = new ArtNetLocation(universe, channel, null);
     return this.mapping.get(loc);
   }
 

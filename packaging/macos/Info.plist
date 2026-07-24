@@ -24,6 +24,13 @@
   <true/>
   <key>LSApplicationCategoryType</key>
   <string>public.app-category.utilities</string>
+  <!-- macOS 15+ demande l'autorisation « Reseau local » des qu'une application
+       emet en broadcast/multicast (decouverte des PixelPusher sur 7331, sACN en
+       multicast sur 5568). Sans cette cle, l'utilisateur voit une alerte
+       generique sans explication et un refus est totalement silencieux cote
+       Java : plus aucun pusher detecte, aucune erreur dans les logs. -->
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>PixelPusher Bridge a besoin du réseau local pour détecter vos contrôleurs PixelPusher et leur transmettre le signal Art-Net / sACN. Sans cette autorisation, aucun contrôleur ne sera trouvé et les LED resteront éteintes.</string>
   <key>NSHumanReadableCopyright</key>
   <string>© 2026 Pierre Yves Mansour — Collectif WSK</string>
 </dict>

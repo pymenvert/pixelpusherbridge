@@ -27,7 +27,11 @@ public class CardThread extends Thread {
   private byte[] packet;
   private DatagramPacket udppacket;
   private DatagramSocket udpsocket;
-  private boolean cancel;
+  // volatile : ecrit par shutDown() depuis un autre thread, lu par la boucle de
+  // runLoop(). Sans cela rien ne garantit que la boucle voie la demande d'arret,
+  // et shutDown() attendait une terminaison qui ne venait jamais.
+  // (PixelPusherBridge)
+  private volatile boolean cancel;
   private int pusherPort;
   private InetAddress cardAddress;
   private long packetNumber;
@@ -37,7 +41,11 @@ public class CardThread extends Thread {
   FileOutputStream recordFile;
   private long lastWorkTime;
   private long firstSendTime;
-  public boolean terminated=false;
+  public volatile boolean terminated=false; // volatile : voir cancel (PixelPusherBridge)
+  // Avertissement "0 ligne par paquet" emis une seule fois, voir
+  // sendPacketToPusher : sans ce drapeau le message partirait a chaque trame et
+  // noierait le journal. (PixelPusherBridge)
+  private boolean warnedZeroStrips = false;
 
   CardThread(PixelPusher pusher, DeviceRegistry dr) {
     super("CardThread for PixelPusher "+pusher.getMacAddress());
@@ -72,8 +80,40 @@ public class CardThread extends Thread {
     return (int) bandwidthEstimate;
   }
 
+  /**
+   * Nombre de paquets necessaires pour couvrir toutes les lignes du pusher.
+   * L'original ecrivait directement (pusher.stripsAttached / stripPerPacket) :
+   * quand un pusher annonce 0 ligne (annonce tronquee, pixel.rc vide),
+   * stripPerPacket vaut lui aussi 0 et l'expression evalue 0/0, donc une
+   * ArithmeticException. Elle tuait le CardThread des le premier tour, sans
+   * jamais passer terminated a true, et shutDown() bouclait alors pour
+   * l'eternite sur le thread d'expiration qui detient le verrou du registre :
+   * gel general (blackout impossible, interface figee). (PixelPusherBridge)
+   */
+  private int packetsPerFrame(int stripPerPacket) {
+    if (stripPerPacket < 1)
+      return 1;
+    int n = pusher.stripsAttached / stripPerPacket;
+    return n < 1 ? 1 : n;
+  }
+
   @Override
   public void run() {
+    // terminated doit etre positionne dans TOUS les cas : si une exception
+    // inattendue tue ce thread, shutDown() ne doit surtout pas boucler sans
+    // fin. Le corps d'origine est deplace tel quel dans runLoop(), sans la
+    // moindre modification ni reindentation. (PixelPusherBridge)
+    try {
+      runLoop();
+    } catch (RuntimeException e) {
+      System.err.println("CardThread " + pusher.getMacAddress()
+          + " arrete apres une erreur inattendue : " + e);
+    } finally {
+      terminated = true;
+    }
+  }
+
+  private void runLoop() {
     while (!cancel) {
       if (pusher.isMulticast()) {
         if (!pusher.isMulticastPrimary()) {
@@ -109,9 +149,9 @@ public class CardThread extends Thread {
       if (bytesSent == 0) {
         try {
           long estimatedSleep = (System.nanoTime() - lastWorkTime)/1000000;
-          estimatedSleep = Math.min(estimatedSleep, ((1000/registry.getFrameLimit()) 
-                                      / (pusher.stripsAttached / stripPerPacket)));
-          
+          estimatedSleep = Math.min(estimatedSleep, ((1000/registry.getFrameLimit())
+                                      / packetsPerFrame(stripPerPacket))); // 0/0 (PixelPusherBridge)
+
           Thread.sleep(estimatedSleep);
         } catch (InterruptedException e) {
           // Don't care if we get interrupted.
@@ -139,13 +179,23 @@ public class CardThread extends Thread {
         e.printStackTrace();
       }
     this.cancel = true;
-    while (!terminated) {
+    // Attente bornee a 2 s. Cette boucle est appelee depuis
+    // SceneThread.removePusherThread, donc depuis la tache d'expiration qui
+    // detient le verrou du registre : une attente sans fin y gelait toute
+    // l'application. Mieux vaut abandonner un thread recalcitrant que bloquer
+    // le blackout, l'arret propre et l'interface web. (PixelPusherBridge)
+    long limite = System.nanoTime() + 2000000000L;
+    while (!terminated && System.nanoTime() < limite) {
       try {
         Thread.sleep(10);
       } catch (InterruptedException e) {
         System.err.println("Interrupted terminating CardThread "+pusher.getMacAddress());
         e.printStackTrace();
       }
+    }
+    if (!terminated) {
+      System.err.println("CardThread " + pusher.getMacAddress()
+          + " ne s'est pas termine en 2 s ; on continue sans l'attendre.");
     }
   }
 
@@ -180,6 +230,26 @@ public class CardThread extends Thread {
 
     int requestedStripsPerPacket = pusher.getMaxStripsPerPacket();
     int stripPerPacket = Math.min(requestedStripsPerPacket, pusher.stripsAttached);
+    // maxStripsPerPacket est lu tel quel dans l'annonce du pusher (un octet) :
+    // une annonce tronquee ou corrompue peut donner 0 alors qu'il reste des
+    // lignes a envoyer. La boucle interne (for i = 0; i < stripPerPacket; i++)
+    // ne retire alors AUCUNE ligne de remainingStrips, donc le while ci-dessous
+    // ne se termine jamais : boucle infinie qui ne relit plus cancel et qui ne
+    // rappelle jamais clearBusy(), le pusher restant occupe a vie et impossible
+    // a arreter. Jusqu'ici l'ArithmeticException du 0/0 (voir packetsPerFrame)
+    // tuait le thread avant d'y arriver et masquait ce defaut ; maintenant
+    // qu'elle n'a plus lieu, il faut sortir explicitement. On rend la main
+    // proprement : runLoop dort puis reessaie, et l'arret reste possible.
+    // (PixelPusherBridge)
+    if (stripPerPacket < 1 && !remainingStrips.isEmpty()) {
+      if (!warnedZeroStrips) {
+        warnedZeroStrips = true;
+        System.err.println("PixelPusher " + pusher.getMacAddress()
+            + " annonce 0 ligne par paquet : trames ignorees (verifie pixel.rc et le firmware).");
+      }
+      pusher.clearBusy();
+      return 0;
+    }
 
     while (!remainingStrips.isEmpty()) {
       packetLength = 0;
@@ -188,12 +258,12 @@ public class CardThread extends Thread {
         this.threadSleepMsec = (pusher.getUpdatePeriod() / 1000) + 1;
       } else {
         // Shoot for the framelimit.
-        this.threadSleepMsec = ((1000/registry.getFrameLimit()) / (pusher.stripsAttached / stripPerPacket));
+        this.threadSleepMsec = ((1000/registry.getFrameLimit()) / packetsPerFrame(stripPerPacket)); // 0/0 (PixelPusherBridge)
       }
 
       // Handle errant delay calculation in the firmware.
       if (pusher.getUpdatePeriod() > 100000)
-        this.threadSleepMsec = (16 / (pusher.stripsAttached / stripPerPacket));
+        this.threadSleepMsec = (16 / packetsPerFrame(stripPerPacket)); // 0/0 (PixelPusherBridge)
 
       totalDelay = threadSleepMsec + threadExtraDelayMsec + pusher.getExtraDelay();
 

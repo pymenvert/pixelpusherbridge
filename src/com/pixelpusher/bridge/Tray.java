@@ -48,16 +48,16 @@ public final class Tray {
 
       // Blackout et reprise sont deux entrees distinctes : un blackout
       // d'urgence ne doit jamais pouvoir etre annule par un clic de travers.
-      MenuItem blackout = new MenuItem("Blackout (tout eteindre et verrouiller)");
+      MenuItem blackout = new MenuItem("Blackout (tout éteindre et verrouiller)");
       blackout.addActionListener(new ActionListener() {
         public void actionPerformed(ActionEvent e) {
           blackoutState.engage();
-          LogBus.info("Blackout demande depuis l'icone systeme.");
+          LogBus.info("Blackout demandé depuis l'icône système.");
         }
       });
       menu.add(blackout);
 
-      MenuItem reprise = new MenuItem("Reprendre (rendre la main a la console)");
+      MenuItem reprise = new MenuItem("Reprendre (rendre la main à la console)");
       reprise.addActionListener(new ActionListener() {
         public void actionPerformed(ActionEvent e) {
           blackoutState.release();
@@ -66,7 +66,7 @@ public final class Tray {
       menu.add(reprise);
       menu.addSeparator();
 
-      MenuItem restart = new MenuItem("Redemarrer le bridge");
+      MenuItem restart = new MenuItem("Redémarrer le bridge");
       restart.addActionListener(new ActionListener() {
         public void actionPerformed(ActionEvent e) {
           Main.scheduleShutdown(true);
@@ -74,7 +74,7 @@ public final class Tray {
       });
       menu.add(restart);
 
-      MenuItem quit = new MenuItem("Arreter le bridge et quitter");
+      MenuItem quit = new MenuItem("Arrêter le bridge et quitter");
       quit.addActionListener(new ActionListener() {
         public void actionPerformed(ActionEvent e) {
           Main.scheduleShutdown(false);
@@ -93,17 +93,17 @@ public final class Tray {
       SystemTray.getSystemTray().add(icon);
       try {
         icon.displayMessage("PixelPusher Bridge",
-            "Le bridge tourne en arriere-plan. Clic droit sur cette icone pour le menu ; "
-            + "fermer la fenetre de l'interface ne l'arrete pas.",
+            "Le bridge tourne en arrière-plan. Clic droit sur cette icône pour le menu ; "
+            + "fermer la fenêtre de l'interface ne l'arrête pas.",
             TrayIcon.MessageType.INFO);
       } catch (RuntimeException ignored) {
         // certaines plateformes ne supportent pas les notifications : sans gravite
       }
-      LogBus.info("Icone de barre systeme installee (point vert = bridge en marche).");
+      LogBus.info("Icône de barre système installée (point vert = bridge en marche).");
       return true;
     } catch (Throwable t) {
       // environnement sans interface graphique : le bridge fonctionne sans icone
-      LogBus.info("Icone systeme indisponible sur cet environnement (" + t.getClass().getSimpleName() + ").");
+      LogBus.info("Icône système indisponible sur cet environnement (" + t.getClass().getSimpleName() + ").");
       return false;
     }
   }

@@ -71,15 +71,17 @@ public class Recorder {
     return dir;
   }
 
+  /**
+   * Nettoyage du nom fourni par le client HTTP.
+   *
+   * L'implementation etait recopiee mot pour mot depuis Presets : meme regex,
+   * meme troncature a 40 caracteres. C'est pourtant l'unique barriere entre un
+   * nom recu par le reseau et un chemin de fichier ; dupliquee, elle finit par
+   * diverger (autoriser le point d'un seul cote suffirait a rouvrir ".."
+   * pour l'autre). Une seule regle, un seul endroit. (PixelPusherBridge)
+   */
   static String sanitize(String name) {
-    if (name == null) {
-      return "";
-    }
-    String s = name.replaceAll("[^\\p{L}\\p{N} _()-]", "").trim();
-    if (s.length() > 40) {
-      s = s.substring(0, 40).trim();
-    }
-    return Names.isReservedOnWindows(s) ? "" : s;
+    return Presets.sanitize(name);
   }
 
   // ------------------------------------------------------------ enregistrement
@@ -93,10 +95,14 @@ public class Recorder {
     if (name.isEmpty()) {
       name = "sequence";
     }
-    File f = new File(recordingsDir(), name + ".ppb");
+    File f = Presets.safeFile(recordingsDir(), name, ".ppb");
     int n = 2;
-    while (f.exists()) {
-      f = new File(recordingsDir(), name + "-" + (n++) + ".ppb");
+    while (f != null && f.exists()) {
+      f = Presets.safeFile(recordingsDir(), name + "-" + (n++), ".ppb");
+    }
+    if (f == null) {
+      LogBus.error("Enregistreur : nom de séquence refusé : " + rawName);
+      return null;
     }
     final String finalName = f.getName().replace(".ppb", "");
     try {
@@ -225,15 +231,23 @@ public class Recorder {
       LogBus.warn("Enregistreur : " + recDropped + " trame(s) sautee(s) (disque lent).");
     }
     // metadonnees (duree/trames) pour un listing rapide
+    // le flux est ferme dans un finally : Properties.store peut lever (disque
+    // plein, support retire) et le descripteur restait alors ouvert jusqu'au
+    // prochain passage du ramasse-miettes. (PixelPusherBridge)
     Properties meta = new Properties();
     meta.setProperty("durationMs", String.valueOf(durationMs));
     meta.setProperty("frames", String.valueOf(recFrames));
-    File metaFile = new File(recordingsDir(), recName + ".meta");
-    try {
-      FileOutputStream out = new FileOutputStream(metaFile);
-      meta.store(out, "PixelPusher Bridge - sequence");
-      out.close();
-    } catch (IOException ignored) {
+    File metaFile = Presets.safeFile(recordingsDir(), recName, ".meta");
+    if (metaFile != null) {
+      try {
+        FileOutputStream out = new FileOutputStream(metaFile);
+        try {
+          meta.store(out, "PixelPusher Bridge - sequence");
+        } finally {
+          out.close();
+        }
+      } catch (IOException ignored) {
+      }
     }
     LogBus.info("Enregistrement termine : " + recName + " (" + recFrames
         + " trames, " + (durationMs / 1000) + " s)");
@@ -244,8 +258,8 @@ public class Recorder {
   /** Lance la lecture d'une sequence. Retourne false si introuvable/erreur. */
   public synchronized boolean play(String rawName, boolean loop) {
     String name = sanitize(rawName);
-    final File f = new File(recordingsDir(), name + ".ppb");
-    if (!f.isFile()) {
+    final File f = Presets.safeFile(recordingsDir(), name, ".ppb");
+    if (f == null || !f.isFile()) {
       LogBus.error("Lecture : sequence introuvable : " + name);
       return false;
     }
@@ -384,26 +398,41 @@ public class Recorder {
     if (playing && name.equals(playName)) {
       stopPlay();
     }
-    File f = new File(recordingsDir(), name + ".ppb");
-    File m = new File(recordingsDir(), name + ".meta");
+    File f = Presets.safeFile(recordingsDir(), name, ".ppb");
+    File m = Presets.safeFile(recordingsDir(), name, ".meta");
+    if (f == null) {
+      return false;
+    }
     boolean ok = f.delete();
-    m.delete();
+    if (m != null) {
+      m.delete();
+    }
     return ok;
   }
 
   private long readMetaDuration(String name) {
-    File metaFile = new File(recordingsDir(), name + ".meta");
-    if (!metaFile.isFile()) {
+    File metaFile = Presets.safeFile(recordingsDir(), name, ".meta");
+    if (metaFile == null || !metaFile.isFile()) {
       return 0;
     }
+    // flux ferme dans un finally : un .meta tronque faisait lever load() et le
+    // descripteur restait ouvert (methode appelee a chaque listing des
+    // sequences, donc plusieurs fois par session). (PixelPusherBridge)
+    FileInputStream in = null;
     try {
       Properties p = new Properties();
-      FileInputStream in = new FileInputStream(metaFile);
+      in = new FileInputStream(metaFile);
       p.load(in);
-      in.close();
       return Long.parseLong(p.getProperty("durationMs", "0"));
     } catch (Exception e) {
       return 0;
+    } finally {
+      if (in != null) {
+        try {
+          in.close();
+        } catch (IOException ignored) {
+        }
+      }
     }
   }
 

@@ -17,9 +17,14 @@ import java.util.concurrent.atomic.AtomicLong;
  *  - elle compte les signaux exploitables par le Diagnostic (demandes de
  *    ralentissement, pixels hors ruban, paquets malformes, firmware trop ancien).
  *
- * Cout : quelques recherches de sous-chaine par ligne de log. Les messages
- * concernes arrivent au rythme des annonces des pushers (une par seconde et par
- * carte), jamais sur le chemin critique des trames LED.
+ * ATTENTION, invariant a respecter : classify() s'execute sur le thread
+ * APPELANT, y compris le thread de reception Art-Net. Plusieurs motifs traites
+ * ici (paquet trop court, paquet trop long, longueur incoherente, start code non
+ * nul, ArtPollReply non envoyee) sont emis par ArtNetReceiver depuis ce thread,
+ * et un emetteur mal configure peut en produire des centaines par seconde. Cette
+ * methode doit donc rester sans I/O, sans verrou, sans allocation tant qu'aucun
+ * motif ne correspond. Les motifs du chemin chaud sont testes en premier pour
+ * que le cas frequent coute deux ou trois recherches de sous-chaine, pas vingt.
  */
 public final class LegacyMessages {
 
@@ -100,8 +105,37 @@ public final class LegacyMessages {
    *         connu (elle part alors telle quelle avec son niveau d'origine).
    */
   public static Classified classify(String level, String msg) {
-    if (msg == null || msg.length() == 0) {
+    // Court-circuit : le motif connu le plus court fait 16 caracteres. Les
+    // lignes plus courtes (et les messages de l'application elle-meme, qui sont
+    // deja en francais) sortent sans payer la table de correspondance.
+    if (msg == null || msg.length() < 16) {
       return null;
+    }
+
+    // ---- chemin chaud : messages emis par le thread de reception Art-Net ----
+    // Teste en premier : une source qui inonde le port 6454 de paquets invalides
+    // fait passer ce thread ici pour chaque paquet.
+    if (msg.indexOf("Received short Art-Net packet") >= 0) {
+      compterPaquetMalforme();
+      return new Classified("WARN", "Paquet Art-Net trop court reçu, ignoré. "
+          + "Un autre logiciel émet peut-être sur le port 6454.");
+    }
+    if (msg.indexOf("Received excessively long Art-Net packet") >= 0) {
+      compterPaquetMalforme();
+      return new Classified("WARN", "Paquet Art-Net trop long reçu, ignoré.");
+    }
+    if (msg.indexOf("Expected Art-Net datagram length") >= 0) {
+      compterPaquetMalforme();
+      return new Classified("WARN", "Longueur de paquet Art-Net incohérente, paquet ignoré ("
+          + msg.trim() + ").");
+    }
+    if (msg.indexOf("Non-zero start data received") >= 0) {
+      return new Classified("INFO", "Paquet Art-Net avec un code de départ non nul ignoré "
+          + "(RDM ou trame de service, ce n'est pas de l'éclairage).");
+    }
+    if (msg.indexOf("Failed to send ArtPollReply") >= 0) {
+      return new Classified("WARN", "Réponse ArtPoll non envoyée : la source ne verra pas "
+          + "ce bridge dans sa liste de nodes. Le flux DMX fonctionne quand même.");
     }
 
     // ---- fluidite : le pusher n'arrive plus a suivre ----
@@ -126,26 +160,6 @@ public final class LegacyMessages {
           + apres(msg, "Tried to write to pixel ").replace(" but it wasn't there.", "").trim()
           + ", qui n'existe pas sur ce ruban. Vérifie pixels_per_strip dans le pixel.rc "
           + "du pusher et l'univers de départ de ta source.");
-    }
-
-    // ---- paquets Art-Net douteux ----
-    if (msg.indexOf("Received short Art-Net packet") >= 0) {
-      compterPaquetMalforme();
-      return new Classified("WARN", "Paquet Art-Net trop court reçu, ignoré. "
-          + "Un autre logiciel émet peut-être sur le port 6454.");
-    }
-    if (msg.indexOf("Received excessively long Art-Net packet") >= 0) {
-      compterPaquetMalforme();
-      return new Classified("WARN", "Paquet Art-Net trop long reçu, ignoré.");
-    }
-    if (msg.indexOf("Expected Art-Net datagram length") >= 0) {
-      compterPaquetMalforme();
-      return new Classified("WARN", "Longueur de paquet Art-Net incohérente, paquet ignoré ("
-          + msg.trim() + ").");
-    }
-    if (msg.indexOf("Non-zero start data received") >= 0) {
-      return new Classified("INFO", "Paquet Art-Net avec un code de départ non nul ignoré "
-          + "(RDM ou trame de service, ce n'est pas de l'éclairage).");
     }
 
     // ---- firmware du pusher ----
@@ -184,10 +198,6 @@ public final class LegacyMessages {
     if (msg.indexOf("could not resolve 0.0.0.0") >= 0) {
       return new Classified("WARN", "Impossible de résoudre l'adresse d'écoute générique. "
           + "Vérifie la configuration réseau de la machine.");
-    }
-    if (msg.indexOf("Failed to send ArtPollReply") >= 0) {
-      return new Classified("WARN", "Réponse ArtPoll non envoyée : la source ne verra pas "
-          + "ce bridge dans sa liste de nodes. Le flux DMX fonctionne quand même.");
     }
 
     return null;

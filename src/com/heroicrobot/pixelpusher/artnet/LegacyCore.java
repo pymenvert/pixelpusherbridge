@@ -71,9 +71,9 @@ public class LegacyCore {
         + ", packing=" + packing + ", pushers mappes=" + newMapping.getMappedPushers().size() + ")");
   }
 
-  public boolean isStarted() {
-    return started;
-  }
+  // isStarted() supprime : aucun appelant. Le code mort ment sur les capacites
+  // reelles de la facade. L'etat interne reste porte par le champ started.
+  // (PixelPusherBridge)
 
   public DeviceRegistry getRegistry() {
     return registry;
@@ -91,9 +91,8 @@ public class LegacyCore {
     ArtNetReceiver.muteDmx = mute;
   }
 
-  public boolean isMuteDmx() {
-    return ArtNetReceiver.muteDmx;
-  }
+  // isMuteDmx() supprime : aucun appelant, l'etat du mode test est expose par
+  // TestPatterns et par /api/status. (PixelPusherBridge)
 
   public boolean isArtnetListening() {
     return ArtNetReceiver.listening;
