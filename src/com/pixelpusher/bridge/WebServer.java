@@ -415,6 +415,7 @@ public class WebServer {
     DeviceRegistry registry = core.getRegistry();
     if (registry != null) {
       registry.setAutoThrottle(cfg.isAutoThrottle());
+      registry.setTotalPowerLimit(cfg.getPowerLimitUnits());
       registry.setFrameLimit(cfg.getFrameLimit());
       registry.setExtraDelay(cfg.getExtraDelayMs());
       registry.setAntiLog(cfg.isAntiLog());
@@ -520,6 +521,25 @@ public class WebServer {
       if (registry != null) {
         registry.setAutoThrottle(cfg.isAutoThrottle());
       }
+    }
+    // La limite de puissance et la consommation par canal se calculent ensemble :
+    // la seconde sert a convertir la premiere en unites de luminance.
+    if (f.containsKey("milliampsPerChannel")) {
+      cfg.setMilliampsPerChannel(
+          parseDouble(f.get("milliampsPerChannel"), cfg.getMilliampsPerChannel()));
+    }
+    if (f.containsKey("powerLimitAmps")) {
+      cfg.setPowerLimitAmps(parseDouble(f.get("powerLimitAmps"), cfg.getPowerLimitAmps()));
+    }
+    if (f.containsKey("powerLimitAmps") || f.containsKey("milliampsPerChannel")) {
+      if (registry != null) {
+        registry.setTotalPowerLimit(cfg.getPowerLimitUnits());
+      }
+      LogBus.info("Limite de puissance : "
+          + (cfg.getPowerLimitAmps() > 0
+              ? cfg.getPowerLimitAmps() + " A (" + cfg.getPowerLimitUnits() + " unités, "
+                  + cfg.getMilliampsPerChannel() + " mA par canal)"
+              : "désactivée"));
     }
     if (f.containsKey("frameLimit")) {
       cfg.setFrameLimit(parseInt(f.get("frameLimit"), cfg.getFrameLimit()));

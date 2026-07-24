@@ -129,6 +129,7 @@ public class Main {
       // n'est utile qu'en debug
       registry.setLogging(cfg.isDebug());
       registry.setAutoThrottle(cfg.isAutoThrottle());
+      registry.setTotalPowerLimit(cfg.getPowerLimitUnits());
       registry.setFrameLimit(cfg.getFrameLimit());
       registry.setExtraDelay(cfg.getExtraDelayMs());
       registry.setAntiLog(cfg.isAntiLog());
@@ -142,7 +143,9 @@ public class Main {
       LogBus.info("Reglages : frameLimit=" + cfg.getFrameLimit() + " Hz, autoThrottle="
           + cfg.isAutoThrottle() + ", extraDelay=" + cfg.getExtraDelayMs()
           + " ms, luminosite=" + Math.round(cfg.getBrightness() * 100) + "%, watchdog="
-          + (cfg.getWatchdogSec() > 0 ? cfg.getWatchdogSec() + " s" : "off"));
+          + (cfg.getWatchdogSec() > 0 ? cfg.getWatchdogSec() + " s" : "off")
+          + ", limite de puissance="
+          + (cfg.getPowerLimitAmps() > 0 ? cfg.getPowerLimitAmps() + " A" : "off"));
     }
 
     // 3. scenarios de test + watchdog de signal
@@ -153,7 +156,7 @@ public class Main {
 
     // 4. enregistreur de sequences + serveur web
     recorder = new Recorder(core);
-    StatusService status = new StatusService(core, tests);
+    StatusService status = new StatusService(cfg, core, tests);
     status.setWatchdog(watchdog);
     status.setRecorder(recorder);
     WebServer web = new WebServer(cfg, core, tests, status, recorder);

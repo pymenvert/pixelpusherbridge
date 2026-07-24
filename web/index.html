@@ -146,6 +146,22 @@
   .btn.okb{background:rgba(52,211,153,.12);color:var(--ok);
     border:1px solid rgba(52,211,153,.4);box-shadow:none}
 
+  /* puissance electrique */
+  .pwr{display:flex;flex-direction:column;gap:9px;padding:14px 16px;margin-bottom:6px;
+    background:var(--panel2);border:1px solid var(--border);border-radius:12px}
+  .pwr .top{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+  .pwr .amps{font-size:23px;font-weight:650;font-variant-numeric:tabular-nums;letter-spacing:-.3px}
+  .pwr .of{color:var(--muted);font-size:12.5px}
+  .pwr .track{height:8px;border-radius:5px;background:rgba(11,14,20,.7);overflow:hidden;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.4)}
+  .pwr .fill{height:100%;border-radius:5px;width:0;
+    background:linear-gradient(90deg,var(--ok),var(--acc2));
+    transition:width .45s cubic-bezier(.4,0,.2,1),background .3s}
+  .pwr.near .fill{background:linear-gradient(90deg,var(--warn),#fb923c)}
+  .pwr.over .fill{background:linear-gradient(90deg,var(--err),#fb7185)}
+  .pwr .note{font-size:12px;color:var(--muted);line-height:1.45}
+  #tPwrCard.over{border-color:rgba(251,191,36,.5)}
+
   /* tests */
   .mastertest{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
   .patterns{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin:14px 0}
@@ -304,6 +320,8 @@
         <div class="big" id="tPushers">0</div></div>
       <div class="card tile"><div class="lbl">Bande passante</div>
         <div class="big" id="tBw">0</div></div>
+      <div class="card tile" id="tPwrCard" title="Consommation annoncée par les pushers"><div class="lbl">Puissance</div>
+        <div class="big" id="tPower">&ndash;</div></div>
       <div class="card tile" id="tErrCard" style="cursor:pointer" title="Voir les logs"><div class="lbl">Erreurs</div>
         <div class="big" id="tErrors">0</div></div>
     </div>
@@ -658,6 +676,36 @@
       </div>
     </div>
 
+    <h2><span class="ic">&#128268;</span> Puissance &eacute;lectrique <span class="hint">(protection de l&rsquo;alimentation)</span></h2>
+    <div class="card sect">
+      <div class="pwr" id="pwrBox">
+        <div class="top">
+          <span class="amps" id="pwrAmps">&ndash;</span>
+          <span class="of" id="pwrOf">limite d&eacute;sactiv&eacute;e</span>
+          <span class="hspacer" style="flex:1"></span>
+          <span class="tag" id="pwrTag" style="display:none">Limiteur actif</span>
+        </div>
+        <div class="track"><div class="fill" id="pwrFill" style="width:0%"></div></div>
+        <div class="note" id="pwrNote">Consommation annonc&eacute;e par les PixelPushers eux-m&ecirc;mes, convertie en amp&egrave;res.</div>
+      </div>
+      <div class="row">
+        <div class="name">Limite de puissance<small>Att&eacute;nuation automatique au-del&agrave;</small></div>
+        <div class="adv">
+          <span><input type="number" id="c_powerLimitAmps" min="0" max="2000" step="0.5"> A</span>
+          <span class="badge">0 = aucune limite</span>
+        </div>
+        <div class="hint">Quand la consommation demand&eacute;e d&eacute;passe cette valeur, le bridge <b>att&eacute;nue proportionnellement toutes les LED</b> pour rester dessous, au lieu de laisser l&rsquo;alimentation s&rsquo;effondrer (chute de tension, couleurs qui virent au rose, protection qui coupe en plein spectacle). Mets la valeur de ton alimentation avec une marge : par exemple <b>24&nbsp;A</b> pour une alim 5&nbsp;V / 30&nbsp;A. Fonctionne seulement si tes pushers annoncent leur consommation ; le diagnostic te le dira.</div>
+      </div>
+      <div class="row">
+        <div class="name">Consommation par canal<small>Caract&eacute;ristique de tes rubans</small></div>
+        <div class="adv">
+          <span><input type="number" id="c_milliampsPerChannel" min="1" max="200" step="1"> mA</span>
+          <span class="badge">20 mA pour WS2812 / APA102</span>
+        </div>
+        <div class="hint">Courant consomm&eacute; par <b>un canal de couleur allum&eacute; &agrave; fond</b>. 20&nbsp;mA est la valeur des rubans les plus courants : un pixel RGB en blanc plein consomme alors ~60&nbsp;mA. Ne sert qu&rsquo;&agrave; convertir la limite ci-dessus dans l&rsquo;unit&eacute; interne. Si tu ne sais pas, laisse 20.</div>
+      </div>
+    </div>
+
     <h2><span class="ic">&#128737;</span> S&eacute;curit&eacute; spectacle</h2>
     <div class="card sect">
       <div class="row">
@@ -878,6 +926,50 @@ function drawSpark(cv,hist,color){
   c.fillStyle=color.replace("1)",".12)");c.fill();
 }
 
+/* ---------- puissance electrique ---------- */
+/* Les pushers annoncent leur propre consommation ; le serveur la convertit en
+   amperes. On affiche la jauge seulement quand l'information a du sens. */
+function renderPower(p){
+  var tile=$("tPower"), card=$("tPwrCard"), box=$("pwrBox");
+  if(!p){return;}
+  var amps=parseFloat(p.amps)||0, limit=parseFloat(p.limitAmps)||0, scale=parseFloat(p.scale);
+  if(isNaN(scale))scale=1;
+  var mesuree=p.units>0;
+
+  if(tile){
+    tile.innerHTML=mesuree
+      ? amps.toFixed(1)+' <span class="unit">A</span>'
+      : '<span class="unit" style="font-size:13px">non mesurée</span>';
+  }
+  if(card)card.classList.toggle("over",!!p.limiting);
+  if(!box)return;
+
+  $("pwrAmps").textContent=mesuree?amps.toFixed(2)+" A":"—";
+  box.classList.remove("near","over");
+  if(limit>0){
+    var pct=limit>0?Math.min(100,amps/limit*100):0;
+    $("pwrFill").style.width=pct.toFixed(1)+"%";
+    $("pwrOf").textContent="sur une limite de "+limit.toFixed(1)+" A";
+    if(p.limiting)box.classList.add("over");
+    else if(pct>80)box.classList.add("near");
+    $("pwrTag").style.display=p.limiting?"":"none";
+    $("pwrTag").className="tag warn";
+    $("pwrTag").textContent="Limiteur actif · "+Math.round(scale*100)+" %";
+    $("pwrNote").textContent=!mesuree
+      ? "Aucun pusher n'annonce sa consommation : le limiteur ne peut pas agir. Utilise plutôt la luminosité globale."
+      : (p.limiting
+        ? "La demande dépasse la limite : toutes les LED sont atténuées à "+Math.round(scale*100)+" % pour protéger l'alimentation."
+        : "Sous la limite, aucune atténuation appliquée.");
+  }else{
+    $("pwrFill").style.width="0%";
+    $("pwrOf").textContent="limite désactivée";
+    $("pwrTag").style.display="none";
+    $("pwrNote").textContent=mesuree
+      ? "Consommation annoncée par les PixelPushers. Renseigne une limite ci-dessous pour activer la protection."
+      : "Tes pushers n'annoncent pas leur consommation (firmware ancien) : la limite serait sans effet.";
+  }
+}
+
 /* ---------- statut (poll 1 s) ---------- */
 var statusFails=0, userTouchedTest=false, lastPusherFp="", lastRecState="";
 function refreshStatus(){
@@ -889,6 +981,7 @@ function refreshStatus(){
     $("hUptime").textContent=fmtUptime(s.uptimeSec);
     $("tArtnet").innerHTML=s.artnetPps+' <span class="unit">pqt/s</span>';
     $("tSacn").innerHTML=s.sacnPps+' <span class="unit">pqt/s</span>';
+    renderPower(s.power);
     $("tPush").innerHTML=s.pushPps+' <span class="unit">pqt/s</span>';
     $("tPushers").textContent=s.pushers.length;
     $("tBw").textContent=fmtBw(s.totalBandwidth);
@@ -1324,6 +1417,8 @@ function loadConfig(){
     $("c_sacnEnabled").checked=c.sacnEnabled;
     $("c_frameLimit").value=c.frameLimit;
     $("c_autoThrottle").checked=c.autoThrottle;
+    $("c_powerLimitAmps").value=c.powerLimitAmps;
+    $("c_milliampsPerChannel").value=c.milliampsPerChannel;
     $("c_extraDelayMs").value=c.extraDelayMs;
     $("c_brightness").value=Math.round(c.brightness*100);
     $("c_brightnessVal").textContent=Math.round(c.brightness*100)+" %";
@@ -1345,6 +1440,8 @@ $("saveBtn").addEventListener("click",function(){
     sacnEnabled:$("c_sacnEnabled").checked,
     frameLimit:$("c_frameLimit").value,
     autoThrottle:$("c_autoThrottle").checked,
+    powerLimitAmps:$("c_powerLimitAmps").value,
+    milliampsPerChannel:$("c_milliampsPerChannel").value,
     extraDelayMs:$("c_extraDelayMs").value,
     brightness:($("c_brightness").value/100).toFixed(2),
     antiLog:$("c_antiLog").checked,

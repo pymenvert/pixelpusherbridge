@@ -108,6 +108,13 @@ public class Diagnostic {
               + Math.round(1000000.0 / periodUs) + " fps)",
               "Beaucoup de pixels par ligne ou réseau chargé. C'est la capacité réelle du pusher.");
         }
+        long extra = p.getExtraDelay();
+        if (extra > 0) {
+          warn(out, id + " : le bridge ralentit de " + extra + " ms pour le suivre",
+              "L'auto-throttle compense un pusher qui ne tient pas le rythme. Si ce délai "
+              + "monte sans cesse, réduis le nombre de pixels par ligne ou passe sur un "
+              + "réseau filaire gigabit dédié.");
+        }
         i++;
       }
       if (core.getMappedPushers().isEmpty()) {
@@ -184,6 +191,72 @@ public class Diagnostic {
     if (cfg.getWatchdogSec() > 0 && cfg.getWatchdogSec() < 5) {
       warn(out, "Watchdog très court (" + cfg.getWatchdogSec() + " s)",
           "Risque de blackout intempestif sur une simple pause de la source. Conseillé : 5–30 s.");
+    }
+
+    // ---- signaux remontes par le coeur legacy ----
+    long demandesRalentissement = LegacyMessages.getThrottleRequests();
+    if (demandesRalentissement > 0 && !cfg.isAutoThrottle()) {
+      long ago = (now - LegacyMessages.getThrottleRequestTs()) / 1000;
+      warn(out, "Un PixelPusher a demandé à ralentir " + demandesRalentissement
+          + " fois (dernière il y a " + ago + " s), mais l'auto-throttle est désactivé",
+          "Le pusher reçoit les trames plus vite qu'il ne peut les afficher : des trames "
+          + "sont perdues et l'animation peut saccader. Active « Auto-throttle » dans "
+          + "Configuration → Fluidité, ou descends la limite de trames vers 60 Hz.");
+    }
+    long pixelsHorsRuban = LegacyMessages.getPixelOutOfRange();
+    if (pixelsHorsRuban > 0) {
+      warn(out, pixelsHorsRuban + " écriture(s) vers un pixel qui n'existe pas",
+          "Le mapping Art-Net vise plus de pixels que le ruban n'en compte réellement. "
+          + "Vérifie pixels_per_strip dans le pixel.rc du pusher et le nombre de canaux "
+          + "envoyés par ta source. L'onglet Adressage DMX recalcule la map exacte.");
+    }
+    long paquetsMalformes = LegacyMessages.getMalformedPackets();
+    if (paquetsMalformes > 0) {
+      warn(out, paquetsMalformes + " paquet(s) Art-Net malformé(s) ignoré(s)",
+          "Un autre logiciel émet peut-être sur le port 6454, ou le réseau perd des paquets. "
+          + "Si le compteur grimpe en continu, isole le réseau lumière du réseau bureautique.");
+    }
+    String firmware = LegacyMessages.getFirmwareWarning();
+    if (firmware != null) {
+      warn(out, firmware,
+          "Mets à jour le firmware du PixelPusher pour garantir la compatibilité. "
+          + "Le bridge fonctionne quand même, mais certains comportements ne sont pas garantis.");
+    }
+
+    // ---- limite de puissance electrique ----
+    if (cfg.getPowerLimitAmps() > 0) {
+      double scale = 1.0;
+      if (registry != null) {
+        try {
+          scale = registry.getPowerScale();
+        } catch (RuntimeException ignored) {
+        }
+      }
+      long unites = 0;
+      for (PixelPusher p : pushers) {
+        try {
+          unites += p.getPowerTotal();
+        } catch (RuntimeException ignored) {
+        }
+      }
+      if (!pushers.isEmpty() && unites == 0) {
+        warn(out, "Limite de puissance configurée mais aucun pusher n'annonce sa consommation",
+            "Le limiteur ne peut pas agir : ce firmware ne remonte pas la mesure de puissance. "
+            + "Utilise plutôt la luminosité globale pour maîtriser la consommation, et "
+            + "dimensionne l'alimentation au pire cas (blanc plein).");
+      } else if (scale < 0.999) {
+        warn(out, "Limiteur de puissance actif : les LED sont à "
+            + Math.round(scale * 100) + " % de leur intensité",
+            "La consommation demandée dépasse la limite de " + cfg.getPowerLimitAmps()
+            + " A. C'est le comportement attendu, le limiteur protège ton alimentation. "
+            + "Si c'est trop sombre, augmente la limite — seulement si l'alimentation "
+            + "le permet réellement — ou baisse l'intensité côté source.");
+      } else {
+        ok(out, "Limite de puissance : " + cfg.getPowerLimitAmps()
+            + " A, non atteinte (consommation estimée "
+            + String.format(java.util.Locale.US, "%.2f",
+                unites * cfg.getMilliampsPerChannel() / 255.0 / 1000.0) + " A)", "");
+      }
     }
 
     // ---- systeme ----

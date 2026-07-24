@@ -15,6 +15,7 @@ import com.heroicrobot.pixelpusher.artnet.LegacyCore;
  */
 public class StatusService {
 
+  private final AppConfig cfg;
   private final LegacyCore core;
   private final TestPatterns tests;
   private Watchdog watchdog;   // optionnel
@@ -96,7 +97,8 @@ public class StatusService {
   private double sacnPps = 0;
   private double pushPps = 0;
 
-  public StatusService(LegacyCore core, TestPatterns tests) {
+  public StatusService(AppConfig cfg, LegacyCore core, TestPatterns tests) {
+    this.cfg = cfg;
     this.core = core;
     this.tests = tests;
   }
@@ -161,6 +163,7 @@ public class StatusService {
     // pushers detectes
     long totalBandwidth = 0;
     int pusherCount = 0;
+    long powerUnits = 0; // consommation annoncee par les pushers, en unites de luminance
     sb.append("\"pushers\":[");
     if (registry != null) {
       try {
@@ -172,6 +175,12 @@ public class StatusService {
       // ordre stable (meme indexation que les tests de lignes)
       for (PixelPusher p : registry.getPushers()) {
         pusherCount++;
+        long pusherPower = 0;
+        try {
+          pusherPower = p.getPowerTotal();
+        } catch (RuntimeException ignored) {
+        }
+        powerUnits += pusherPower;
         if (!first) {
           sb.append(',');
         }
@@ -204,11 +213,36 @@ public class StatusService {
           .append("\"updatePeriodUs\":").append(periodUs).append(',')
           .append("\"fps\":").append(fmt(fps)).append(',')
           .append("\"extraDelayMs\":").append(p.getExtraDelay()).append(',')
+          .append("\"powerUnits\":").append(pusherPower).append(',')
           .append("\"mapped\":").append(mapped.contains(p))
           .append('}');
       }
     }
     sb.append("],");
+
+    // ---- puissance electrique ----
+    // Les pushers annoncent eux-memes leur consommation en « unites de luminance »
+    // (255 = un canal de couleur d'un pixel allume a fond). On la convertit en
+    // amperes avec la consommation par canal configuree, et on expose l'echelle
+    // appliquee par le limiteur pour que l'interface montre qu'il agit.
+    double powerScale = 1.0;
+    if (registry != null) {
+      try {
+        powerScale = registry.getPowerScale();
+      } catch (RuntimeException ignored) {
+      }
+    }
+    double maPerChannel = cfg != null ? cfg.getMilliampsPerChannel() : 20.0;
+    double amps = powerUnits * maPerChannel / 255.0 / 1000.0;
+    double limitAmps = cfg != null ? cfg.getPowerLimitAmps() : 0;
+    sb.append("\"power\":{")
+      .append("\"units\":").append(powerUnits).append(',')
+      .append("\"amps\":").append(fmt(amps, 2)).append(',')
+      .append("\"limitAmps\":").append(fmt(limitAmps, 2)).append(',')
+      .append("\"scale\":").append(fmt(powerScale, 3)).append(',')
+      .append("\"limiting\":").append(limitAmps > 0 && powerScale < 0.999)
+      .append("},");
+
     sb.append("\"totalBandwidth\":").append(totalBandwidth).append(',');
     sb.append("\"pushPps\":").append(fmt(pushPps)).append(',');
     sb.append("\"pushPacketsTotal\":")
@@ -244,9 +278,13 @@ public class StatusService {
   }
 
   private static String fmt(double d) {
+    return fmt(d, 1);
+  }
+
+  private static String fmt(double d, int decimales) {
     if (Double.isNaN(d) || Double.isInfinite(d)) {
       return "0";
     }
-    return String.format(java.util.Locale.US, "%.1f", d);
+    return String.format(java.util.Locale.US, "%." + decimales + "f", d);
   }
 }

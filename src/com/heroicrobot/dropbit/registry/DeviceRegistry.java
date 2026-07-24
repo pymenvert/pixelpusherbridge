@@ -263,6 +263,13 @@ public final class DeviceRegistry extends Observable {
    */
   public void setTotalPowerLimit(long powerLimit) {
     totalPowerLimit = powerLimit;
+    // Quand la limite est retiree, l'echelle doit revenir a 1 : le bloc de calcul
+    // plus bas ne s'execute que si totalPowerLimit > 0, donc sans ce reset la
+    // derniere valeur calculee resterait appliquee et les LED resteraient
+    // attenuees definitivement. (PixelPusherBridge)
+    if (powerLimit <= 0) {
+      powerScale = 1.0;
+    }
   }
   
   /**
@@ -630,7 +637,10 @@ public final class DeviceRegistry extends Observable {
         totalPower += pusher.getPowerTotal();
       }
       if (totalPower > totalPowerLimit) {
-        powerScale = totalPowerLimit / totalPower;
+        // Division en virgule flottante indispensable : entre deux long, le
+        // rapport (toujours < 1 dans cette branche) est tronque a 0, ce qui
+        // eteignait completement les LED au lieu de les attenuer. (PixelPusherBridge)
+        powerScale = (double) totalPowerLimit / (double) totalPower;
       } else {
         powerScale = 1.0;
       }

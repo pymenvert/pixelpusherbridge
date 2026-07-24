@@ -125,9 +125,20 @@ public final class LogBus {
     log("ERROR", msg);
   }
 
-  public static void log(String level, String msg) {
-    if (msg == null || msg.length() == 0) {
+  public static void log(String rawLevel, String rawMsg) {
+    if (rawMsg == null || rawMsg.length() == 0) {
       return;
+    }
+    // Le coeur legacy ecrit tout sur System.err : ses avertissements arrivent
+    // donc ici en ERROR alors que ce n'en sont pas. On les reclasse et on les
+    // traduit avant tout comptage, sinon le tableau de bord affiche des erreurs
+    // pour des situations parfaitement normales.
+    String level = rawLevel;
+    String msg = rawMsg;
+    LegacyMessages.Classified reclasse = LegacyMessages.classify(rawLevel, rawMsg);
+    if (reclasse != null) {
+      level = reclasse.level;
+      msg = reclasse.message;
     }
     if ("ERROR".equals(level)) {
       // les lignes de stack trace ("at ...", "Caused by...") sont des suites
@@ -187,6 +198,13 @@ public final class LogBus {
     synchronized (LOCK) {
       RING.clear();
     }
+    // « Effacer les logs » doit aussi remettre a zero les compteurs affiches sur
+    // le tableau de bord : sinon l'interface continue d'annoncer des erreurs
+    // qu'elle n'est plus capable de montrer.
+    ERROR_COUNT.set(0);
+    lastError = "";
+    lastErrorTs = 0;
+    LegacyMessages.reset();
   }
 
   /**

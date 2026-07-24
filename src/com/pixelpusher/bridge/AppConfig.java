@@ -136,6 +136,39 @@ public class AppConfig {
   public boolean isAutoThrottle() { return getBool("autoThrottle", false); }
   public void setAutoThrottle(boolean v) { set("autoThrottle", v); }
 
+  /**
+   * Limite de puissance electrique globale, en amperes (0 = desactivee).
+   * Au-dela de cette limite le bridge attenue proportionnellement toutes les LED,
+   * plutot que de laisser l'alimentation s'effondrer (chute de tension, couleurs
+   * qui virent, protection qui coupe en pleine representation).
+   */
+  public double getPowerLimitAmps() { return clampD(getDouble("powerLimitAmps", 0), 0, 2000); }
+  public void setPowerLimitAmps(double v) { set("powerLimitAmps", clampD(v, 0, 2000)); }
+
+  /**
+   * Consommation d'un canal de couleur allume a fond, en milliamperes.
+   * 20 mA est la valeur typique des rubans WS2812 / APA102 : un pixel RGB en
+   * blanc plein consomme donc environ 60 mA. Ne sert qu'a convertir la limite
+   * saisie en amperes vers les « unites de luminance » du coeur legacy.
+   */
+  public double getMilliampsPerChannel() {
+    return clampD(getDouble("milliampsPerChannel", 20.0), 1.0, 200.0);
+  }
+  public void setMilliampsPerChannel(double v) { set("milliampsPerChannel", clampD(v, 1.0, 200.0)); }
+
+  /**
+   * Limite exprimee dans l'unite attendue par DeviceRegistry.setTotalPowerLimit :
+   * 255 unites = un canal de couleur d'un pixel allume a fond.
+   * Renvoie -1 quand la limite est desactivee (valeur « pas de limite » du legacy).
+   */
+  public long getPowerLimitUnits() {
+    double amps = getPowerLimitAmps();
+    if (amps <= 0) {
+      return -1;
+    }
+    return Math.round(amps * 1000.0 / getMilliampsPerChannel() * 255.0);
+  }
+
   public int getFrameLimit() { return clamp(getInt("frameLimit", 85), 1, 1000); }
   public void setFrameLimit(int v) { set("frameLimit", clamp(v, 1, 1000)); }
 
@@ -181,6 +214,8 @@ public class AppConfig {
     sb.append("\"debug\":").append(isDebug()).append(',');
     sb.append("\"sacnEnabled\":").append(isSacnEnabled()).append(',');
     sb.append("\"autoThrottle\":").append(isAutoThrottle()).append(',');
+    sb.append("\"powerLimitAmps\":").append(getPowerLimitAmps()).append(',');
+    sb.append("\"milliampsPerChannel\":").append(getMilliampsPerChannel()).append(',');
     sb.append("\"frameLimit\":").append(getFrameLimit()).append(',');
     sb.append("\"extraDelayMs\":").append(getExtraDelayMs()).append(',');
     sb.append("\"antiLog\":").append(isAntiLog()).append(',');
