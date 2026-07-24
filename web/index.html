@@ -8,17 +8,49 @@
 <style>
   :root{
     --bg:#0b0e14; --panel:rgba(23,28,39,.75); --panel-solid:#171c27; --panel2:#1f2735;
-    --border:#2a3345; --text:#e6ebf4; --muted:#8b98ad; --muted2:#5d6a80;
+    --border:#2a3345; --text:#e6ebf4;
+    /* Contrastes relevés : ces textes sont lus en pénombre de régie, souvent
+       de biais et à distance. Les anciennes valeurs passaient sous le seuil
+       WCAG AA sur les fonds sombres du panneau. */
+    --muted:#9aa7bc; --muted2:#7b88a0;
     --acc:#6366f1; --acc2:#22d3ee; --ok:#34d399; --warn:#fbbf24; --err:#f87171;
     --r:14px; --shadow:0 8px 30px rgba(0,0,0,.35);
+    /* Une seule courbe d'accélération pour toute l'interface : c'est ce qui
+       fait qu'un ensemble d'animations paraît dessiné plutôt qu'assemblé. */
+    --ease:cubic-bezier(.4,0,.2,1);
+    --ring:0 0 0 3px rgba(99,102,241,.45);
   }
   *{box-sizing:border-box}
   html{scrollbar-color:#2a3345 transparent}
-  body{margin:0;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5;
+  body{margin:0;background:var(--bg);color:var(--text);font-size:14px;line-height:1.55;
     font-family:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+    -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
     background-image:radial-gradient(1200px 500px at 80% -10%, rgba(99,102,241,.09), transparent),
-                     radial-gradient(900px 400px at 10% -10%, rgba(34,211,238,.07), transparent);}
+                     radial-gradient(900px 400px at 10% -10%, rgba(34,211,238,.07), transparent);
+    background-attachment:fixed;}
   ::selection{background:rgba(99,102,241,.4)}
+  /* Toute valeur chiffrée qui bouge est en chiffres à chasse fixe : sans ça
+     les compteurs tressautent à chaque rafraîchissement. */
+  .big,.val,td,th,#logView,.tile .big,.pwr .amps{font-variant-numeric:tabular-nums}
+
+  /* Accessibilité : un anneau de focus visible au clavier, invisible à la
+     souris. L'interface annulait purement et simplement l'outline. */
+  :focus-visible{outline:none;box-shadow:var(--ring);border-radius:8px}
+  .btn:focus-visible,.hbtn:focus-visible,nav button:focus-visible,
+  .pat:focus-visible,.lbtn:focus-visible,.sbtn:focus-visible,
+  .fchip:focus-visible,input:focus-visible,select:focus-visible{box-shadow:var(--ring)}
+  .switch input:focus-visible + .sl{box-shadow:var(--ring)}
+
+  /* Respect des préférences système : certaines personnes sont gênées par le
+     mouvement, et une régie n'a pas besoin d'animations. */
+  @media(prefers-reduced-motion:reduce){
+    *,*:before,*:after{animation-duration:.001ms !important;animation-iteration-count:1 !important;
+      transition-duration:.001ms !important;scroll-behavior:auto !important}
+  }
+
+  /* Bridge injoignable : le tableau de bord doit cesser de faire croire que
+     ses chiffres sont vivants. */
+  body.stale #tab-dash{opacity:.4;filter:grayscale(1);transition:opacity .3s var(--ease)}
 
   /* ---------- header ---------- */
   header{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:14px;
@@ -64,16 +96,24 @@
   @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 
   /* ---------- composants ---------- */
+  /* Le liseré clair en haut de chaque carte simule une lumière rasante : c'est
+     ce détail qui donne l'impression de matière plutôt que de rectangle plat. */
   .card{background:var(--panel);border:1px solid var(--border);border-radius:var(--r);
-    padding:18px;backdrop-filter:blur(8px);transition:border-color .2s}
+    padding:18px;backdrop-filter:blur(8px);position:relative;
+    box-shadow:0 1px 0 rgba(255,255,255,.045) inset, 0 2px 12px rgba(0,0,0,.18);
+    transition:border-color .2s var(--ease),box-shadow .2s var(--ease),transform .2s var(--ease)}
+  .tile:hover{border-color:rgba(99,102,241,.4);transform:translateY(-1px);
+    box-shadow:0 1px 0 rgba(255,255,255,.06) inset, 0 8px 22px rgba(0,0,0,.28)}
   .grid{display:grid;gap:14px}
   .tiles{grid-template-columns:repeat(auto-fit,minmax(165px,1fr))}
   .tile{position:relative;overflow:hidden;padding:14px 16px}
   .tile .lbl{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.8px;font-weight:600}
-  .tile .big{font-size:26px;font-weight:650;margin-top:2px;font-variant-numeric:tabular-nums}
+  .tile .big{font-size:26px;font-weight:650;margin-top:2px;font-variant-numeric:tabular-nums;
+    letter-spacing:-.6px}
   .tile .unit{font-size:12px;color:var(--muted);font-weight:400}
   .tile canvas{position:absolute;left:0;right:0;bottom:0;width:100%;height:34px;opacity:.8}
-  h2{font-size:14.5px;margin:26px 0 12px;font-weight:650;display:flex;align-items:center;gap:8px}
+  h2{font-size:14.5px;margin:26px 0 12px;font-weight:650;display:flex;align-items:center;gap:8px;
+    letter-spacing:-.15px}
   h2:first-child{margin-top:0}
   h2 .ic{opacity:.7}
   .hint{color:var(--muted);font-size:12.5px}
@@ -235,7 +275,7 @@
     font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
     font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-word}
   .lg-INFO{color:#aebacc}.lg-WARN{color:var(--warn)}.lg-ERROR{color:var(--err)}
-  .lg-ts{color:#4d5b73}
+  .lg-ts{color:#6b7a94}
 
   /* toasts / modal / overlay */
   #toasts{position:fixed;right:20px;bottom:20px;z-index:200;display:flex;
@@ -287,7 +327,7 @@
   <div class="logo"></div>
   <div>
     <h1>PixelPusher Bridge</h1>
-    <div class="sub">Pont Art-Net / sACN &rarr; PixelPusher &middot; <span id="version">&ndash;</span> &middot; uptime <span id="hUptime">&ndash;</span></div>
+    <div class="sub">Pont Art-Net / sACN &rarr; PixelPusher &middot; <span id="version">&ndash;</span> &middot; en marche depuis <span id="hUptime">&ndash;</span></div>
   </div>
   <div class="hspacer"></div>
   <button class="hbtn" id="hBlackout" onclick="quickBlackout()" title="Éteint toutes les LED et ignore le flux entrant jusqu'à la reprise">&#9899; <span>Blackout</span></button>
@@ -320,12 +360,12 @@
   <section id="tab-dash" class="tab active">
     <div class="grid tiles">
       <div class="card tile"><div class="lbl">Art-Net re&ccedil;u</div>
-        <div class="big" id="tArtnet">0 <span class="unit">pqt/s</span></div>
+        <div class="big" id="tArtnet">0 <span class="unit">paquets/s</span></div>
         <canvas id="spArtnet" width="220" height="34"></canvas></div>
       <div class="card tile"><div class="lbl">sACN re&ccedil;u</div>
-        <div class="big" id="tSacn">0 <span class="unit">pqt/s</span></div></div>
+        <div class="big" id="tSacn">0 <span class="unit">paquets/s</span></div></div>
       <div class="card tile"><div class="lbl">&rarr; Pushers</div>
-        <div class="big" id="tPush">0 <span class="unit">pqt/s</span></div>
+        <div class="big" id="tPush">0 <span class="unit">paquets/s</span></div>
         <canvas id="spPush" width="220" height="34"></canvas></div>
       <div class="card tile"><div class="lbl">PixelPushers</div>
         <div class="big" id="tPushers">0</div></div>
@@ -406,7 +446,7 @@
         Il doit rester lanc&eacute; tant que les LED doivent r&eacute;pondre.</div>
     </div>
 
-    <h2>1&#65039;&#8283; Brancher le PixelPusher</h2>
+    <h2>1&#65039;&#8419; Brancher le PixelPusher</h2>
     <div class="card sect">
       <ul style="margin:0;padding-left:20px;line-height:2">
         <li>Branche les rubans LED sur les sorties du PixelPusher (chaque sortie = une &laquo; ligne &raquo;).</li>
@@ -418,7 +458,7 @@
       </ul>
     </div>
 
-    <h2>2&#65039;&#8283; V&eacute;rifier que le bridge le voit</h2>
+    <h2>2&#65039;&#8419; V&eacute;rifier que le bridge le voit</h2>
     <div class="card sect">
       <div class="hint" style="line-height:1.9">Ouvre le <a href="#" onclick="goTab('dash');return false" style="color:var(--acc2)">Tableau de bord</a> :
       la section &laquo; Est-ce que tout marche ? &raquo; doit montrer <b>PixelPusher(s) d&eacute;tect&eacute;(s)</b> en vert,
@@ -426,7 +466,7 @@
       Si ce n&rsquo;est pas le cas, clique <b>&#128269; Lancer le diagnostic</b> : chaque probl&egrave;me d&eacute;tect&eacute; vient avec un conseil concret.</div>
     </div>
 
-    <h2>3&#65039;&#8283; Tester les LED sans logiciel</h2>
+    <h2>3&#65039;&#8419; Tester les LED sans logiciel</h2>
     <div class="card sect">
       <div class="hint" style="line-height:1.9">Onglet <a href="#" onclick="goTab('test');return false" style="color:var(--acc2)">Tests</a> :
       active le mode test et essaie <b>Blanc 100 %</b> (tout doit s&rsquo;allumer), puis <b>Cycle RVB</b> &mdash; quand l&rsquo;&eacute;cran dit ROUGE,
@@ -436,7 +476,7 @@
       et <b>D&eacute;grad&eacute;</b> montre dans quel sens court chaque ruban.</div>
     </div>
 
-    <h2>4&#65039;&#8283; Configurer ton logiciel lumi&egrave;re</h2>
+    <h2>4&#65039;&#8419; Configurer ton logiciel lumi&egrave;re</h2>
     <div class="card sect">
       <ul style="margin:0;padding-left:20px;line-height:2">
         <li>Protocole : <b>Art-Net</b> (ou sACN), destination : <b>l&rsquo;adresse IP de cet ordinateur</b> (ou broadcast), port 6454 (standard).</li>
@@ -448,7 +488,7 @@
       </ul>
     </div>
 
-    <h2>5&#65039;&#8283; En spectacle / installation</h2>
+    <h2>5&#65039;&#8419; En spectacle / installation</h2>
     <div class="card sect">
       <ul style="margin:0;padding-left:20px;line-height:2">
         <li><b>Watchdog de signal</b> (Configuration &rarr; S&eacute;curit&eacute; spectacle) : si ta source plante, les LED s&rsquo;&eacute;teignent au lieu de rester fig&eacute;es. Conseill&eacute; : 5&ndash;30 s.</li>
@@ -816,7 +856,7 @@
   </div>
 </div>
 
-<div id="modalBg"><div id="modal">
+<div id="modalBg"><div id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
   <h3 id="modalTitle"></h3><p id="modalMsg"></p>
   <div class="acts">
     <button class="btn sec" onclick="closeModal()">Annuler</button>
@@ -828,9 +868,17 @@
 <script>
 "use strict";
 function $(id){return document.getElementById(id);}
+/* Le serveur signale ses refus par un code HTTP et/ou "ok":false. Sans ce
+   contrôle, l'interface affichait un toast de succès vert alors que le bridge
+   venait de rejeter la demande — le pire des retours possibles. */
 function post(url, data){
   return fetch(url,{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},
-    body:new URLSearchParams(data).toString()}).then(function(r){return r.json();});
+    body:new URLSearchParams(data).toString()}).then(function(r){
+      return r.json().catch(function(){return {};}).then(function(j){
+        if(!r.ok||j.ok===false)throw new Error(j.error||("Le bridge a refusé la demande (HTTP "+r.status+")"));
+        return j;
+      });
+    });
 }
 function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
 
@@ -857,15 +905,28 @@ function toast(msg, kind){
   setTimeout(function(){d.style.opacity="0";d.style.transition="opacity .4s";
     setTimeout(function(){d.remove();},400);},3800);
 }
-var modalAction=null;
+var modalAction=null, modalFocusAvant=null;
 function openModal(title,msg,okLabel,action){
   $("modalTitle").textContent=title;$("modalMsg").textContent=msg;
   $("modalOk").textContent=okLabel;modalAction=action;
   $("modalBg").classList.add("show");
+  /* On mémorise le focus pour le rendre à la fermeture, et on le place sur
+     Annuler : ces boîtes confirment des actions destructrices, la touche
+     Entrée ne doit jamais les déclencher par réflexe. */
+  modalFocusAvant=document.activeElement;
+  var annuler=document.querySelector("#modal .acts button:not(#modalOk)");
+  (annuler||$("modalOk")).focus();
 }
-function closeModal(){$("modalBg").classList.remove("show");modalAction=null;}
+function closeModal(){
+  $("modalBg").classList.remove("show");modalAction=null;
+  if(modalFocusAvant&&modalFocusAvant.focus)modalFocusAvant.focus();
+  modalFocusAvant=null;
+}
 $("modalOk").addEventListener("click",function(){var a=modalAction;closeModal();if(a)a();});
 $("modalBg").addEventListener("click",function(e){if(e.target===this)closeModal();});
+document.addEventListener("keydown",function(e){
+  if(e.key==="Escape"&&$("modalBg").classList.contains("show"))closeModal();
+});
 function overlay(msg){$("overlayMsg").textContent=msg;$("overlay").classList.add("show");}
 
 /* ---------- actions bridge ---------- */
@@ -931,8 +992,21 @@ function fmtDur(s){
 
 /* ---------- sparklines ---------- */
 var histA=[],histP=[];
+/* Aligne la résolution du canvas sur celle de l'écran. Sans ça, les courbes
+   sont dessinées en 1x puis étirées par le CSS : elles paraissent floues sur
+   tout écran haute densité (MacBook, écrans 4K), ce qui trahit immédiatement
+   une interface bâclée. */
+function fitCanvas(cv){
+  var r=window.devicePixelRatio||1, b=cv.getBoundingClientRect();
+  if(!b.width)return cv.getContext("2d");
+  var w=Math.round(b.width*r), h=Math.round(b.height*r);
+  if(cv.width!==w||cv.height!==h){cv.width=w;cv.height=h;}
+  var c=cv.getContext("2d");
+  c.setTransform(r,0,0,r,0,0);
+  return c;
+}
 function drawSpark(cv,hist,color){
-  var c=cv.getContext("2d"),W=cv.width,H=cv.height;
+  var c=fitCanvas(cv),W=cv.width/(window.devicePixelRatio||1),H=cv.height/(window.devicePixelRatio||1);
   c.clearRect(0,0,W,H);
   if(hist.length<2)return;
   var max=Math.max.apply(null,hist)*1.15||1;
@@ -997,12 +1071,13 @@ function refreshStatus(){
     statusFails=0;
     $("connBadge").classList.remove("off");
     $("connBadge").lastChild.textContent="Connecté";
+    document.body.classList.remove("stale");
     $("version").textContent="v"+s.version;
     $("hUptime").textContent=fmtUptime(s.uptimeSec);
-    $("tArtnet").innerHTML=s.artnetPps+' <span class="unit">pqt/s</span>';
-    $("tSacn").innerHTML=s.sacnPps+' <span class="unit">pqt/s</span>';
+    $("tArtnet").innerHTML=s.artnetPps+' <span class="unit">paquets/s</span>';
+    $("tSacn").innerHTML=s.sacnPps+' <span class="unit">paquets/s</span>';
     renderPower(s.power);
-    $("tPush").innerHTML=s.pushPps+' <span class="unit">pqt/s</span>';
+    $("tPush").innerHTML=s.pushPps+' <span class="unit">paquets/s</span>';
     $("tPushers").textContent=s.pushers.length;
     $("tBw").textContent=fmtBw(s.totalBandwidth);
     $("tErrors").textContent=s.errorsTotal;
@@ -1047,7 +1122,7 @@ function refreshStatus(){
     var checks=[
       [h.webServer,"Interface web active","Le serveur web du bridge répond."],
       [h.artnetListening,"Écoute Art-Net (port 6454)",
-        h.artnetListening?"Prêt à recevoir les données de ta source.":"ERREUR : "+(h.artnetBindError||"port indisponible")+" — nouvel essai automatique toutes les 5 s."],
+        h.artnetListening?"Prêt à recevoir les données de ta source.":"ERREUR : "+esc(h.artnetBindError||"port indisponible")+" — nouvel essai automatique toutes les 5 s."],
       [h.pushersDetected,h.pusherCount+" PixelPusher(s) détecté(s)",
         h.pushersDetected?"Découverte automatique OK.":"Vérifie alimentation, réseau et pare-feu (UDP 7331)."],
       [h.dmxDataRecent,"Données DMX reçues",
@@ -1101,6 +1176,9 @@ function refreshStatus(){
     if(statusFails>=3){
       $("connBadge").classList.add("off");
       $("connBadge").lastChild.textContent="Déconnecté";
+      /* Le tableau de bord doit cesser de faire croire que ses chiffres sont
+         vivants : figés et grisés, on comprend d'un coup d'œil qu'ils datent. */
+      document.body.classList.add("stale");
     }
   });
 }

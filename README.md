@@ -42,6 +42,37 @@ Données : `~/.pixelpusherbridge/` (config, presets, enregistrements, logs) — 
 
 Défauts pensés pour un flux sans saccade (auto-throttle off, délai 0 ms, 85 Hz). L'interface, l'enregistreur et le watchdog tournent dans des threads séparés : **aucun impact sur le flux Art-Net → LED**. Ports réseau retentés toutes les 5 s s'ils sont occupés, exceptions capturées dans les logs, limites anti-fuite, arrêt propre avec blackout.
 
+La version 1.6 est issue d'un **audit complet** du logiciel : six défauts capables
+d'interrompre une représentation ont été corrigés, dont un qui arrêtait la réception
+Art-Net dès qu'une LED dépassait 50 % avec la correction gamma activée, et un autre
+qui condamnait toutes les trames DMX après un simple paquet de découverte réseau.
+Le rapport intégral est dans [AUDIT.md](AUDIT.md).
+
+### Blackout d'urgence
+
+Le bouton **Blackout** ne se contente pas d'éteindre : il **verrouille**. Tant qu'il
+est actif, les données entrantes sont ignorées — sinon la trame suivante de la
+console rallumerait tout 25 ms plus tard. Il faut cliquer sur **Reprendre** pour
+rendre la main. Disponible dans l'en-tête, sur le téléphone et dans l'icône système.
+
+### Limite de puissance électrique
+
+Renseigne l'ampérage de ton alimentation dans *Configuration → Puissance électrique*.
+Au-delà, le bridge atténue proportionnellement toutes les LED plutôt que de laisser
+l'alimentation s'effondrer (chute de tension, couleurs qui virent, protection qui
+coupe). Une jauge affiche la consommation réelle, annoncée par les PixelPushers
+eux-mêmes.
+
+### Tests automatisés
+
+```
+RUN-TESTS.bat
+```
+
+100 vérifications sans aucune dépendance : conversions de puissance, reclassement
+des messages du cœur réseau, échappement JSON, filtrage des noms de fichiers,
+serveur HTTP de secours de bout en bout, syntaxe des interfaces web, encodeur QR.
+
 ## Recompiler après une modification
 
 1. Arrête le bridge (bouton ⏹ ou le .bat d'arrêt) — il verrouille son jar.

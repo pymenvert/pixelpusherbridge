@@ -2,7 +2,10 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<!-- Pas de maximum-scale ni user-scalable=no : bloquer le zoom empêche de lire
+     l'interface à bout de bras dans le noir, et c'est un obstacle réel pour les
+     personnes malvoyantes. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#0b0e14">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b0e14'/%3E%3Crect x='5' y='6' width='22' height='4' rx='2' fill='%23f87171'/%3E%3Crect x='5' y='14' width='22' height='4' rx='2' fill='%2334d399'/%3E%3Crect x='5' y='22' width='22' height='4' rx='2' fill='%2322d3ee'/%3E%3C/svg%3E">
@@ -62,8 +65,16 @@
   .item{display:flex;align-items:center;gap:10px;background:var(--panel2);
     border:1px solid var(--border);border-radius:12px;padding:11px 13px;font-size:14.5px}
   .item .n{flex:1;font-weight:550;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .item button{border:none;border-radius:9px;padding:9px 14px;font-family:inherit;
-    font-weight:650;font-size:13px;cursor:pointer}
+  /* 44 px : taille minimale recommandee pour une cible tactile. En dessous, on
+     rate le bouton une fois sur trois - inacceptable pour « arreter la
+     sequence » en pleine representation. */
+  .item button{border:none;border-radius:9px;padding:11px 16px;font-family:inherit;
+    font-weight:650;font-size:13px;cursor:pointer;min-height:44px;min-width:44px}
+  .item{padding:12px 13px}
+  button:focus-visible,input:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(99,102,241,.5)}
+  @media(prefers-reduced-motion:reduce){
+    *,*:before,*:after{animation-duration:.001ms !important;transition-duration:.001ms !important}
+  }
   .item .play{background:rgba(52,211,153,.15);color:var(--ok)}
   .item .stop{background:rgba(248,113,113,.15);color:var(--err)}
   .item .load{background:rgba(99,102,241,.2);color:#a5b4fc}

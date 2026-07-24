@@ -2,6 +2,75 @@
 
 Toutes les évolutions notables de PixelPusher Bridge.
 
+## [1.6.0] — 2026-07-25
+
+Version de fiabilité. Un audit complet du logiciel a mis au jour six défauts
+capables d'interrompre une représentation ; ils sont tous corrigés et vérifiés
+sur banc de test. Le rapport intégral est dans [`AUDIT.md`](AUDIT.md).
+
+### Corrigé — défauts pouvant gâcher un spectacle
+
+- **La courbe anti-log tuait la réception Art-Net.** La table de correction était
+  indexée par un octet signé : dès qu'un canal DMX dépassait 127, l'index devenait
+  négatif et l'exception, non rattrapée, arrêtait définitivement le thread de
+  réception. Cocher l'option et monter une LED au-dessus de 50 % suffisait à figer
+  toutes les LED, sans le moindre message.
+- **Un seul petit paquet réseau coupait l'Art-Net pour de bon.** Le tampon de
+  réception n'était jamais réinitialisé : sa capacité ne faisait que décroître.
+  Un ArtPoll de 14 octets, émis par n'importe quel node du réseau, condamnait
+  toutes les trames DMX suivantes.
+- **Un datagramme inconnu sur le port de découverte gelait toute l'application.**
+  Un verrou interne n'était pas relâché sur une sortie anticipée. Blackout,
+  watchdog, arrêt propre et interface se bloquaient alors définitivement.
+- **Le blackout d'urgence ne coupait rien.** Éteindre les pixels ne servait à rien
+  tant que la console continuait d'émettre : la trame suivante rallumait tout
+  25 ms plus tard. Le blackout est désormais un **état verrouillé**, comme sur une
+  console : les données entrantes sont ignorées jusqu'à une reprise explicite.
+- **Un navigateur endormi pouvait bloquer le flux LED.** Les logs étaient écrits
+  directement dans les connexions des pages ouvertes, depuis le thread qui reçoit
+  l'Art-Net. Un onglet en veille ou un téléphone verrouillé suffisait à le figer.
+- **L'interface web pouvait ne pas démarrer du tout**, sans explication, quand un
+  pare-feu ou un antivirus bloque les connexions en boucle locale dont Java a
+  besoin. Un serveur HTTP de secours prend maintenant le relais automatiquement.
+- **sACN** : la longueur des paquets n'était pas vérifiée. Un paquet court
+  injectait dans les LED les restes du paquet précédent, et les paquets de
+  synchronisation étaient joués comme des données d'éclairage.
+- **Perte de réglages** : si la configuration ne se chargeait pas, un clic sur
+  Enregistrer écrasait tout par des valeurs vides. L'enregistrement est maintenant
+  bloqué tant que la lecture n'a pas abouti.
+- Une configuration illisible empêchait le démarrage sans message ; le fichier est
+  désormais mis de côté et l'application repart sur ses valeurs par défaut.
+- La lecture en boucle d'une séquence vide saturait un cœur du processeur.
+- Une erreur disque en cours d'enregistrement laissait le fichier ouvert et
+  l'interface affichait « aucun enregistrement » comme si tout allait bien.
+- Le lanceur Windows vérifiait la présence de Java, pas qu'il fonctionne : l'échec
+  était totalement silencieux. Il teste maintenant réellement la version et
+  journalise dans `~/.pixelpusherbridge/launcher.log`.
+
+### Ajouté
+
+- **Limite de puissance électrique**, en ampères. Au-delà, toutes les LED sont
+  atténuées proportionnellement pour protéger l'alimentation, au lieu de la
+  laisser s'effondrer. Jauge de consommation en temps réel sur le tableau de bord
+  et dans la configuration. *(Le calcul interne était cassé par une division
+  entière : la limite éteignait tout au lieu d'atténuer.)*
+- **Messages du cœur réseau traduits et reclassés.** Ce qui n'était pas une erreur
+  n'est plus compté comme telle, et chaque message porte un conseil concret.
+  L'avertissement d'auto-throttle, les écritures hors ruban, les paquets malformés
+  et les firmwares trop anciens remontent désormais dans le diagnostic.
+- **Banc de tests automatisés** (`RUN-TESTS.bat`) : 100 vérifications, zéro
+  dépendance. Contrôle aussi la syntaxe des interfaces web et l'encodeur QR.
+
+### Amélioré
+
+- Interface : contrastes relevés pour la lecture en pénombre de régie, navigation
+  au clavier avec indicateur de focus visible, respect des préférences système de
+  réduction du mouvement, courbes nettes sur écrans haute densité, vocabulaire
+  homogène. Le tableau de bord se grise quand le bridge ne répond plus, au lieu
+  d'afficher des chiffres périmés comme s'ils étaient vivants.
+- Interface téléphone : zoom débloqué, cibles tactiles portées à 44 px.
+- Les messages de succès ne s'affichent plus quand le bridge a refusé la demande.
+
 ## [1.5.0] — 2026-07-08
 
 ### Ajouté

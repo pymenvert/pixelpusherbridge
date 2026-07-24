@@ -75,6 +75,63 @@ Solution utilisateur : activer l'auto-throttle dans Configuration. Amélioration
 reclasser ce message en WARN plutôt qu'en rouge/erreur, et le détecter dans `Diagnostic`
 pour suggérer directement l'auto-throttle.
 
+### 9. L'interface web qui ne démarre plus (Windows, 2026-07)
+
+**Symptôme :** l'application tourne, les LED fonctionnent, mais la page est
+injoignable. Le log dit « Aucun port web disponible entre 7350 et 7360 » alors que
+`netstat` montre le processus **en écoute sur ces onze ports**.
+
+**Cause :** `com.sun.net.httpserver` repose sur `java.nio.channels.Selector`, qui
+ouvre une connexion en boucle locale pour son mécanisme de réveil. Quand un
+pare-feu ou un antivirus la bloque, `Selector.open()` échoue avec « Unable to
+establish loopback connection ». Or `HttpServer.create()` **réserve le port avant
+d'échouer et ne le relâche jamais** : les onze tentatives condamnaient onze ports
+pour la durée du processus. Pire, ces ports acceptent les connexions sans jamais
+répondre, si bien que `detectRunningInstance` n'y voyait aucune instance et
+laissait démarrer un doublon — la cause exacte du piège n°3.
+
+**Résolu :** `WebServer.jdkServerUsable()` teste le sélecteur *avant* toute
+réservation ; on ne parcourt les ports suivants que sur un vrai conflit ; et
+`MiniHttpServer` (sockets bloquantes, expose l'API `HttpExchange` pour que les
+handlers soient réutilisés à l'identique) prend le relais. En dernier recours, un
+port libre quelconque : mieux vaut une interface sur un port inhabituel que pas
+d'interface.
+
+**À retenir :** les sockets bloquantes fonctionnaient parfaitement pendant que NIO
+échouait. Ne jamais supposer qu'un échec réseau est global.
+
+### 10. Un octet Java est signé
+
+Trois défauts distincts de cet audit viennent tous de là : `sLinearExp[(int)intensity]`
+(index négatif dès qu'un canal DMX dépasse 127), et deux `catch (NullPointerException)`
+trop étroits qui laissaient remonter l'`ArrayIndexOutOfBoundsException` jusqu'à tuer
+le thread de réception. **Sur ce projet, tout octet issu du réseau se masque avec
+`& 0xff`.** `Pixel.setColorAntilog` le faisait déjà correctement : c'est le contraste
+qui a permis de trouver le bug.
+
+### 11. `DatagramPacket` réutilisé : toujours `setLength()`
+
+`DatagramSocket.receive()` écrase la longueur du paquet avec la taille réellement
+reçue, et cette longueur devient **la capacité maximale de la réception suivante**.
+Sans réinitialisation, la capacité ne fait que décroître : un ArtPoll de 14 octets
+condamnait ensuite toutes les trames DMX. `SacnReceiver` le faisait déjà, pas
+`ArtNetReceiver` ni le socket de découverte.
+
+### 12. Un blackout qui n'éteint pas
+
+Mettre les pixels à zéro ne sert à rien tant que la source émet : la trame suivante
+rallume tout 25 ms plus tard. Un blackout d'urgence doit **couper l'entrée**, pas
+seulement l'affichage — c'est ce que fait la touche blackout d'une console. D'où
+`Blackout.java` et son état verrouillé.
+
+### 13. Ne jamais écrire dans une socket cliente depuis un thread temps réel
+
+Les logs partaient directement dans les connexions SSE, depuis le thread appelant —
+y compris celui qui reçoit l'Art-Net. Un navigateur qui cesse de lire (onglet en
+veille, téléphone verrouillé) remplit le tampon TCP et **bloque l'écriture**, donc
+la réception DMX. Règle générale : entre un producteur temps réel et un
+consommateur réseau, il faut une file bornée et un thread dédié.
+
 ## Validations effectuées
 
 - **Mapping bout en bout** : faux pusher + émetteur Art-Net → couleurs reçues au pixel près.
@@ -93,7 +150,25 @@ pour suggérer directement l'auto-throttle.
 
 ## Idées non implémentées (backlog)
 
-- Reclasser l'avertissement d'auto-throttle et le remonter dans le diagnostic (voir §8).
+**Priorité, issue de l'audit de juillet 2026 (voir `AUDIT.md`) :**
+
+- **Licence du cœur réseau** — bloquant pour une vente. `src/com/heroicrobot/…`
+  vient d'un dépôt publié *sans fichier de licence* : par défaut, tous droits
+  réservés. Il faut une autorisation écrite de Jas Strong / Heroic Robotics avant
+  toute commercialisation. Le dossier `reference/` (copie intégrale du projet
+  d'origine) est volontairement exclu du dépôt public.
+- **Authentification de l'interface** — le serveur écoute sur toutes les
+  interfaces sans mot de passe : sur le réseau d'un lieu, n'importe qui peut
+  déclencher un blackout. Piste retenue : jeton dans l'URL du QR code, et refus
+  des requêtes non locales sans jeton. À faire avant une diffusion large.
+- **CSRF** — une page web ouverte sur le poste de régie peut poster sur
+  `/api/action`. Piste : exiger un en-tête `X-Requested-With` (les formulaires
+  HTML ne peuvent pas en envoyer) et vérifier l'origine.
+- Les 20 findings majeurs restants et les 47 mineurs sont listés dans
+  `audit-findings.json`, avec pour chacun un correctif proposé.
+
+**Autres idées :**
+
 - Démarrage automatique au boot (explicitement **refusé** par l'utilisateur, ne pas ajouter).
 - Limite de puissance électrique par pusher (le legacy a `setTotalPowerLimit`, non exposé).
 - Multi-pusher : tout est prévu et testé côté code, mais jamais éprouvé avec 2 pushers réels.

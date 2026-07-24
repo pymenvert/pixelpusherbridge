@@ -25,10 +25,16 @@ l'identique** parce que c'est lui qui garantit la fluidité (aucune saccade sur 
 priorité n°1 de l'utilisateur. Les seules modifications faites sont des *hooks* minimaux,
 tous marqués par un commentaire `// … PixelPusherBridge` :
 
-- `ArtNetReceiver` : compteurs de paquets, `muteDmx`, `lastFrame` (moniteur DMX), `tap` (enregistreur), retry de bind, `listening`/`bindError`
-- `SacnReceiver` : idem + `enabled`
+- `ArtNetReceiver` : compteurs de paquets, `muteDmx`, `lastFrame` (moniteur DMX), `tap` (enregistreur), retry de bind, `listening`/`bindError`, **`setLength` du tampon + catch élargi**
+- `SacnReceiver` : idem + `enabled`, **validation longueur / vecteur / start code**
 - `CardThread` : compteur `totalPacketsSent`
-- `DeviceRegistry` : 2 `System.err` passés en `System.out` (c'étaient des messages informatifs comptés comme erreurs)
+- `DeviceRegistry` : 2 `System.err` passés en `System.out`, **verrou en `try/finally`, division en virgule flottante du limiteur de puissance, `setLength` du tampon de découverte**
+- `Strip` : **index de la table anti-log masqué en `& 0xff`** (l'octet est signé)
+- `PixelPusher` : **borne de `getStrip()` corrigée en `>=`**
+- `PixelPusherObserver` : **mapping reconstruit puis publié atomiquement** (`volatile`)
+
+Chacun de ces correctifs vient d'un défaut confirmé par l'audit et documenté dans
+`AUDIT.md`. Ne pas les défaire en resynchronisant avec `reference/`.
 
 Tout le reste passe par la façade **`LegacyCore.java`** (dans le package artnet) : c'est le
 seul point de contact autorisé entre le nouveau code et le legacy. Ajouter une fonctionnalité
@@ -43,22 +49,42 @@ src/com/pixelpusher/bridge/
   AppConfig.java      Config persistante (~/.pixelpusherbridge/config.properties) + VERSION
   Presets.java        Presets nommés (~/.pixelpusherbridge/presets/*.properties)
   LogBus.java         Capture System.out/err → historique mémoire + fichier + SSE ; compteur d'erreurs
+  LegacyMessages.java Traduit et reclasse les messages du legacy (WARN/INFO au lieu d'ERROR),
+                      et compte les signaux exploités par le Diagnostic
   StatusService.java  Snapshot JSON pour le dashboard (/api/status)
   Diagnostic.java     Vérifications + conseils + rapport texte
+  Blackout.java       Blackout d'urgence **verrouillé** (mute DMX + extinction, reprise explicite)
   Recorder.java       Enregistreur/lecteur de séquences (format PPBREC01, écriture asynchrone)
   TestPatterns.java   10 scénarios de test dont tests de lignes
   Watchdog.java       Blackout auto si plus de signal DMX
   Qr.java             Encodeur QR maison (byte mode, ECC L, v1-5) — zéro dépendance
   Tray.java           Icône barre système (AWT SystemTray) + menu clic droit
-  WebServer.java      Serveur HTTP embarqué (com.sun.net.httpserver), tous les endpoints
+  WebServer.java      Serveur HTTP embarqué, tous les endpoints
+  MiniHttpServer.java Serveur HTTP **de secours** en sockets bloquantes (voir DEVNOTES §9)
+  Names.java          Noms de fichiers interdits par Windows (CON, LPT1…)
   Json.java           Échappement JSON
 
+tests/                Banc de tests (hors du jar) — `RUN-TESTS.bat`
 web/index.html        Interface complète (un seul fichier, vanilla JS, aucun framework)
 web/mobile.html       Interface téléphone simplifiée (/m)
 packaging/            Launchers macOS/Windows, Info.plist, icône, script de signature
 reference/            Sources du projet d'origine + pixel.rc d'exemple (lecture seule, référence)
-tools/                Scripts de test (faux PixelPusher, émetteur Art-Net, validateur QR)
+tools/                Scripts de test (faux PixelPusher, émetteur Art-Net, validateur QR,
+                      vérificateur des interfaces web)
+AUDIT.md              Rapport d'audit complet (90 défauts confirmés) + plan d'action
+audit-findings.json   Les mêmes, en données exploitables
 ```
+
+## Toujours lancer les tests avant de publier
+
+```
+RUN-TESTS.bat
+```
+Compile `src/` + `tests/`, exécute 100 vérifications (conversions de puissance,
+reclassement des messages legacy, échappement JSON, filtrage des noms de fichiers,
+serveur HTTP de secours de bout en bout), puis valide les interfaces web et
+l'encodeur QR. Zéro dépendance. Les fichiers `*Test.java` et le dossier `tests/`
+ne partent jamais dans le jar.
 
 **Aucune dépendance externe.** Uniquement la bibliothèque standard Java (cible **Java 11**).
 C'est volontaire : le jar doit rester autonome et léger. Ne pas introduire Maven/Gradle/npm
@@ -73,7 +99,7 @@ sans raison majeure.
 | `/api/status` | GET | Snapshot complet (dashboard, poll 1 s) |
 | `/api/config` | GET/POST | Configuration (POST = form-urlencoded, application à chaud) |
 | `/api/test` | POST | Scénarios de test (enabled, pattern, color, brightness, speed, linePusher, lineStrip) |
-| `/api/action` | POST | `remap` / `clearLogs` / `blackout` / `stop` / `restart` |
+| `/api/action` | POST | `remap` / `clearLogs` / `blackout` / `resume` / `stop` / `restart` |
 | `/api/logs` | GET | Flux SSE des logs |
 | `/api/logs/download` | GET | Journal texte |
 | `/api/presets` | GET/POST | `save` / `load` / `delete` |

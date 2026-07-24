@@ -8,6 +8,16 @@ sources_list.txt
 # imbriqués (dist/PixelPusher Bridge (Windows)/PixelPusherBridge.jar).
 dist/
 
+# Copie intégrale du projet d'origine (robot-head/PixelPusher-artnet), gardée en
+# local comme référence de comparaison. Elle n'est PAS publiée : ce dépôt n'a
+# reçu aucune licence explicite de ses auteurs, redistribuer le projet entier
+# irait au-delà de la reprise créditée du cœur réseau. Voir LICENSE et DEVNOTES.
+reference/
+
+# Sortie du banc de tests
+build/tests/
+test_sources.txt
+
 # Système
 .DS_Store
 Thumbs.db
