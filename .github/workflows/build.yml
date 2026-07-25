@@ -1,0 +1,130 @@
+# ============================================================================
+#  Vérification automatique et fabrication des livrables.
+#
+#  POURQUOI CE FICHIER EXISTE
+#  Les archives distribuées ont longtemps été fabriquées à la main sur la
+#  machine de développement, et finissaient donc régulièrement par dater d'une
+#  version antérieure au code. Ici, elles sont produites par GitHub à partir du
+#  dépôt lui-même, sur une machine propre, et seulement si les tests passent.
+#  Personne ne peut plus publier un binaire qui ne correspond pas aux sources.
+#
+#  Deux déclenchements :
+#   - à chaque poussée sur main ou pull request : on compile et on vérifie ;
+#   - à chaque tag « v… » : on vérifie, on assemble les deux archives et on les
+#     attache à la release correspondante.
+#
+#  Aucune dépendance ajoutée au logiciel : ce fichier ne sert qu'à la
+#  fabrication. Le jar reste sans la moindre bibliothèque tierce.
+# ============================================================================
+name: Vérification et livrables
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:      # permet aussi un lancement manuel depuis l'onglet Actions
+
+permissions:
+  contents: write         # nécessaire pour attacher les archives à une release
+
+jobs:
+  verifier:
+    name: Compiler et vérifier
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupérer les sources
+        uses: actions/checkout@v4
+
+      - name: Installer Java 17
+        # On COMPILE avec un JDK récent mais on CIBLE Java 11 (--release 11
+        # dans build.sh, vérifié ensuite en relisant la version du bytecode) :
+        # c'est exactement ce que fait la machine de développement.
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Installer Python 3
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Compiler
+        run: ./build.sh
+
+      - name: Banc de tests (313 vérifications)
+        run: |
+          mkdir -p build/tests
+          find src tests -name '*.java' > /tmp/sources_tests.txt
+          javac --release 11 -encoding UTF-8 -d build/tests @/tmp/sources_tests.txt
+          java -cp build/tests com.pixelpusher.bridge.RunTests
+
+      - name: Vérifier les interfaces web
+        run: python3 tools/check_web.py
+
+      - name: Valider l'encodeur QR
+        run: python3 tools/validate_qr.py dist/PixelPusherBridge.jar
+
+      - name: Test de bout en bout (réseau -> mapping -> trames -> LED)
+        # Le scénario ouvre de vrais sockets UDP sur la boucle locale : un faux
+        # PixelPusher, une source Art-Net simulée, puis contrôle des couleurs
+        # réellement reçues. C'est la seule preuve qui compte.
+        run: python3 tools/smoke_test.py
+
+      - name: Assembler les livrables
+        run: python3 tools/make_livrables.py
+
+      - name: Conserver les archives (téléchargeables depuis l'onglet Actions)
+        uses: actions/upload-artifact@v4
+        with:
+          name: livrables
+          path: |
+            dist/PixelPusher Bridge (macOS).zip
+            dist/PixelPusher Bridge (Windows).zip
+            dist/PixelPusherBridge.jar
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Contrôler les droits Unix de l'archive macOS
+        # Garde-fou explicite : si le lanceur perdait son bit exécutable, l'app
+        # ne démarrerait pas sur un Mac et rien ne le signalerait avant le
+        # spectacle. On échoue ici plutôt que là-bas.
+        run: |
+          python3 - <<'PY'
+          import sys, zipfile
+          chemin = "dist/PixelPusher Bridge (macOS).zip"
+          cible = "PixelPusher Bridge.app/Contents/MacOS/PixelPusherBridge"
+          with zipfile.ZipFile(chemin) as z:
+              info = {i.filename: i for i in z.infolist()}[cible]
+          mode = (info.external_attr >> 16) & 0o777
+          if info.create_system != 3 or mode != 0o755:
+              print("ECHEC : lanceur en %04o (systeme %d), attendu 0755 en Unix (3)"
+                    % (mode, info.create_system))
+              sys.exit(1)
+          print("Lanceur macOS : 0755, permissions Unix — conforme.")
+          PY
+
+      - name: Attacher les archives à la release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          # La release peut ne pas exister encore (tag poussé sans release
+          # rédigée à la main). Dans ce cas on la crée, avec un renvoi vers le
+          # CHANGELOG plutôt que des notes vides.
+          if ! gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            echo "Release ${GITHUB_REF_NAME} absente : création."
+            gh release create "${GITHUB_REF_NAME}" \
+              --title "${GITHUB_REF_NAME}" \
+              --notes "Voir [CHANGELOG.md](https://github.com/${GITHUB_REPOSITORY}/blob/main/CHANGELOG.md)."
+          fi
+          # --clobber : une relance du workflow remplace les archives au lieu
+          # d'échouer sur « asset already exists ».
+          gh release upload "${GITHUB_REF_NAME}" \
+            "dist/PixelPusher Bridge (macOS).zip" \
+            "dist/PixelPusher Bridge (Windows).zip" \
+            --clobber
+          echo "Archives attachées à ${GITHUB_REF_NAME}."

@@ -226,7 +226,9 @@ echo
 echo " Lancer :   java -jar \"$JAR\""
 echo " Tester :   java -jar \"$JAR\" --no-browser"
 echo
-echo " Zip macOS livrable : packaging/make_mac_app.sh (depuis macOS ou Linux)."
-echo " Il reassemble l'app complete : lanceur, Info.plist, icone, jar, LICENSE."
+echo " Livrables distribuables : python3 tools/make_livrables.py"
+echo " Il assemble les deux archives (macOS et Windows) avec les droits Unix"
+echo " corrects, puis relit l'archive macOS pour verifier que le lanceur y est"
+echo " bien executable. Fonctionne depuis n'importe quel systeme."
 echo " Pense a joindre LISEZ-MOI.txt a cote des binaires distribues."
 echo "============================================"

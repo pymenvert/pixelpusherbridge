@@ -116,6 +116,25 @@ Enchaîne les trois étapes et s'arrête à la première qui échoue :
 Si cette commande finit en vert, l'ensemble a été vérifié sans le moindre
 matériel. **Ne publie pas une version qui ne passe pas cette commande.**
 
+### Vérification automatique sur GitHub
+
+Le même enchaînement tourne sur GitHub à chaque poussée
+([.github/workflows/build.yml](.github/workflows/build.yml)) : compilation
+ciblée Java 11, 313 tests, interfaces web, encodeur QR, et le test de bout en
+bout réseau → LED. Les archives assemblées sont téléchargeables depuis l'onglet
+*Actions* de chaque exécution.
+
+**Publier une version** se résume alors à pousser un tag :
+
+```bash
+git tag -a v1.7.0 -m "…" && git push origin v1.7.0
+```
+
+GitHub compile, vérifie, assemble les deux archives et **les attache lui-même à
+la release** — sur une machine propre, à partir des sources du dépôt, et
+uniquement si tout est vert. Un binaire publié ne peut donc plus diverger du
+code, ce qui était précisément le défaut du zip macOS jusqu'ici.
+
 ## Recompiler après une modification
 
 1. Arrête le bridge (bouton ⏹ ou le .bat d'arrêt) — il verrouille son jar.
