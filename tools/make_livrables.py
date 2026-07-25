@@ -175,24 +175,47 @@ DOSSIER_WINDOWS = os.path.join(DIST, "PixelPusher Bridge (Windows)")
 
 
 def ecrire_zip_windows():
-    """Le livrable Windows n'a pas de contrainte de permissions, mais il doit
-    exister sous forme d'archive : un dossier ne s'attache pas à une release."""
-    if not os.path.isdir(DOSSIER_WINDOWS):
-        return "dossier Windows absent — lance BUILD.bat d'abord"
+    """
+    Livrable Windows, assemblé DEPUIS LES SOURCES.
+
+    La première version se contentait de zipper `dist/PixelPusher Bridge
+    (Windows)/`, le dossier que BUILD.bat entretient. Ça marchait sur la machine
+    de développement et nulle part ailleurs : `dist/` est ignoré par git, donc ce
+    dossier n'existe pas dans un dépôt fraîchement cloné — l'intégration continue
+    l'a signalé immédiatement. On repart donc des mêmes pièces d'origine que le
+    livrable macOS.
+    """
+    pieces = [
+        (JAR, "PixelPusherBridge.jar"),
+        (os.path.join(RACINE, "packaging", "windows", "PixelPusher Bridge.bat"),
+         "PixelPusher Bridge.bat"),
+        (os.path.join(RACINE, "packaging", "windows", "Arreter PixelPusher Bridge.bat"),
+         "Arreter PixelPusher Bridge.bat"),
+        # La licence MIT impose que sa notice accompagne toute copie du logiciel.
+        (os.path.join(RACINE, "LICENSE"), "LICENSE"),
+    ]
+    manquants = [os.path.basename(src) for src, _ in pieces if not os.path.isfile(src)]
+    if manquants:
+        return "éléments introuvables : " + ", ".join(manquants)
+
     if os.path.exists(ZIP_WINDOWS):
         os.remove(ZIP_WINDOWS)
-    attendus = {"PixelPusherBridge.jar", "PixelPusher Bridge.bat",
-                "Arreter PixelPusher Bridge.bat", "LICENSE"}
-    presents = set(os.listdir(DOSSIER_WINDOWS))
-    manquants = attendus - presents
-    if manquants:
-        return "éléments manquants : " + ", ".join(sorted(manquants))
+    base = "PixelPusher Bridge (Windows)"
     with zipfile.ZipFile(ZIP_WINDOWS, "w", zipfile.ZIP_DEFLATED) as z:
-        base = os.path.basename(DOSSIER_WINDOWS)
         z.writestr(entree(base, MODE_DOSSIER, dossier=True), b"")
-        for nom in sorted(presents):
-            with open(os.path.join(DOSSIER_WINDOWS, nom), "rb") as f:
+        for source, nom in pieces:
+            with open(source, "rb") as f:
                 z.writestr(entree(base + "/" + nom, MODE_FICHIER), f.read())
+
+    # Confort local : on tient aussi à jour le dossier décompressé, que BUILD.bat
+    # utilise et que l'auteur lance directement pendant le développement.
+    try:
+        if not os.path.isdir(DOSSIER_WINDOWS):
+            os.makedirs(DOSSIER_WINDOWS)
+        for source, nom in pieces:
+            shutil.copy2(source, os.path.join(DOSSIER_WINDOWS, nom))
+    except OSError:
+        pass  # le livrable, lui, est déjà écrit : ce confort n'est pas critique
     return None
 
 
