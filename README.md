@@ -71,7 +71,7 @@ La version 1.6 est issue d'un **audit complet** du logiciel : six défauts capab
 d'interrompre une représentation ont été corrigés, dont un qui arrêtait la réception
 Art-Net dès qu'une LED dépassait 50 % avec la correction gamma activée, et un autre
 qui condamnait toutes les trames DMX après un simple paquet de découverte réseau.
-Le rapport intégral est dans [AUDIT.md](AUDIT.md).
+Le détail de chaque correctif est dans les messages de commit et le [CHANGELOG](CHANGELOG.md).
 
 ### Blackout d'urgence
 

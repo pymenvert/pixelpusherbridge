@@ -283,7 +283,8 @@ l'échange (flux continu, réponse différée), vérifier explicitement les **de
 
 ## Idées non implémentées (backlog)
 
-**Priorité, issue de l'audit de juillet 2026 (voir `AUDIT.md`) :**
+**Priorité, issue de l'audit de juillet 2026** (rapport conservé hors dépôt,
+dans `../_audits-PixelPusherBridge/`) **:**
 
 - **Licence du cœur réseau** — bloquant pour une vente. `src/com/heroicrobot/…`
   vient d'un dépôt publié *sans fichier de licence* : par défaut, tous droits
@@ -300,8 +301,9 @@ l'échange (flux continu, réponse différée), vérifier explicitement les **de
   pas, l'interface étant très souvent ouverte par son adresse LAN). Le reste des
   commandes est volontairement ouvert : c'est ce qui rend l'accès téléphone par
   QR code utilisable sans configuration.
-- Le détail des findings de l'audit reste dans `audit-findings.json` et
-  `audit-reste.json`, avec pour chacun le correctif appliqué ou proposé.
+- Le détail des findings est conservé hors du dépôt, dans
+  `../_audits-PixelPusherBridge/` : un rapport public détaille des failles
+  corrigées et sert de feuille de route à qui reste sur une version antérieure.
 
 **Fait depuis (ne pas rouvrir) :**
 

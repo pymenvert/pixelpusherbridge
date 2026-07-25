@@ -32,3 +32,9 @@ desktop.ini
 *.iml
 .project
 .classpath
+
+# Rapports d'audit : volontairement hors du dépôt (voir CLAUDE.md).
+# Un rapport public détaille des failles corrigées et sert de feuille de route
+# à qui reste sur une version antérieure.
+AUDIT*.md
+audit-*.json

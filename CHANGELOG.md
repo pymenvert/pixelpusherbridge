@@ -6,7 +6,7 @@ Toutes les évolutions notables de PixelPusher Bridge.
 
 Version de fiabilité. Un audit complet du logiciel a mis au jour six défauts
 capables d'interrompre une représentation ; ils sont tous corrigés et vérifiés
-sur banc de test. Le rapport intégral est dans [`AUDIT.md`](AUDIT.md).
+sur banc de test.
 
 ### Corrigé — défauts pouvant gâcher un spectacle
 

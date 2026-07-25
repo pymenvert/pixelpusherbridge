@@ -36,7 +36,12 @@ tous marqués par un commentaire `// … PixelPusherBridge` :
 - `PixelPusherObserver` : **mapping reconstruit puis publié atomiquement** (`volatile`)
 
 Chacun de ces correctifs vient d'un défaut confirmé par l'audit et documenté dans
-`AUDIT.md`. Ne pas les défaire en resynchronisant avec `reference/`.
+le rapport d'audit. Ne pas les défaire en resynchronisant avec `reference/`.
+
+> **Où est le rapport d'audit ?** Volontairement **hors du dépôt**, dans
+> `../_audits-PixelPusherBridge/`. Un rapport public détaille des failles
+> corrigées : c'est une feuille de route offerte à qui reste sur une version
+> antérieure. Ne pas le réintroduire dans le dépôt.
 
 Tout le reste passe par la façade **`LegacyCore.java`** (dans le package artnet) : c'est le
 seul point de contact autorisé entre le nouveau code et le legacy. Ajouter une fonctionnalité
@@ -84,8 +89,6 @@ VERIFIER-TOUT.bat     Compilation + tests + bout en bout : la commande à faire 
                       avant un spectacle ou une publication
 LISEZ-MOI.txt         Pense-bête à livrer à côté des binaires (version, licence, aide)
 DEMARRER-ICI.md       Point d'entrée du dossier pour une reprise de développement
-AUDIT.md              Rapport d'audit complet (90 défauts confirmés) + plan d'action
-audit-findings.json   Les mêmes, en données exploitables
 ```
 
 ## Toujours lancer les tests avant de publier
