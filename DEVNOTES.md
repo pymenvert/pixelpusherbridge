@@ -89,6 +89,28 @@ les deux produisent le même contenu.
 **Leçon générale :** « il faut le faire sur l'autre système » mérite toujours d'être
 questionné. Ici la contrainte était fausse, et elle coûtait un livrable périmé.
 
+### 7 bis. SO_REUSEADDR n'a pas le même sens sous Windows et sous Unix
+
+**Trouvé par l'intégration continue, invisible sur la machine de développement.**
+
+`MiniHttpServer` liait son socket avec `setReuseAddress(false)`, en raisonnant avec la
+sémantique **Windows** : là-bas l'option autorise un second processus à prendre le port
+sous le nez du premier, donc la désactiver protège la détection d'instance en double.
+
+Sous **Unix (macOS, Linux)** l'option ne fait pas ça du tout. Elle permet seulement de
+relier un port dont il reste des connexions en `TIME_WAIT` — jusqu'à une minute après
+l'arrêt. Deux serveurs vivants ne peuvent toujours pas partager le port (il faudrait
+`SO_REUSEPORT`), donc un vrai conflit échoue franchement dans les deux cas.
+
+**Conséquence du réglage erroné :** sur le Mac de régie, un simple « Redémarrer le
+bridge » aurait fait glisser l'interface sur le port suivant, et toutes les adresses
+notées par l'équipe seraient devenues fausses. Windows ne montrait rien.
+
+**Résolu :** l'option est activée sur Unix, désactivée sur Windows — c'est d'ailleurs ce
+que fait déjà le serveur du JDK. Le test « le port est réellement libéré à l'arrêt »
+couvre le cas ; il passait sous Windows et échouait sous Linux, ce qui est exactement la
+raison d'être du workflow GitHub.
+
 ### 8. Avertissement « would increase delay, but autothrottle is disabled »
 Ce n'est **pas** une erreur : le pusher signale qu'il reçoit plus vite qu'il ne peut suivre.
 Solution utilisateur : activer l'auto-throttle dans Configuration.

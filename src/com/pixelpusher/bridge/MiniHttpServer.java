@@ -76,7 +76,25 @@ public final class MiniHttpServer {
   public static MiniHttpServer create(InetSocketAddress addr, int backlog) throws IOException {
     ServerSocket socket = new ServerSocket();
     try {
-      socket.setReuseAddress(false); // on veut un echec franc si le port est pris
+      // SO_REUSEADDR : le reglage correct depend du systeme, et se tromper coute
+      // cher sur le poste de regie.
+      //
+      // Sur Unix (macOS, Linux), un port qu'on vient de liberer reste inutilisable
+      // tant que des connexions clientes sont en TIME_WAIT - jusqu'a une minute.
+      // Sans cette option, un simple « Redemarrer le bridge » ferait glisser
+      // l'interface sur le port suivant, et toutes les adresses notees par
+      // l'equipe deviendraient fausses. L'option ne permet PAS pour autant a deux
+      // serveurs vivants de partager le port (il faudrait SO_REUSEPORT) : un vrai
+      // conflit de port echoue toujours franchement. C'est d'ailleurs ce que fait
+      // deja le serveur du JDK.
+      //
+      // Sur Windows, la meme option a une semantique differente : elle autorise un
+      // second processus a prendre le port sous le nez du premier. On l'y laisse
+      // donc desactivee, pour garder la detection d'instance en double.
+      // (PixelPusherBridge)
+      boolean windows = System.getProperty("os.name", "")
+          .toLowerCase(java.util.Locale.ROOT).contains("win");
+      socket.setReuseAddress(!windows);
       socket.bind(addr, backlog > 0 ? backlog : 50);
       return new MiniHttpServer(socket);
     } catch (IOException e) {
