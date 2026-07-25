@@ -78,10 +78,11 @@ public class Recorder {
    * meme troncature a 40 caracteres. C'est pourtant l'unique barriere entre un
    * nom recu par le reseau et un chemin de fichier ; dupliquee, elle finit par
    * diverger (autoriser le point d'un seul cote suffirait a rouvrir ".."
-   * pour l'autre). Une seule regle, un seul endroit. (PixelPusherBridge)
+   * pour l'autre). Une seule regle, un seul endroit : Names.
+   * (PixelPusherBridge)
    */
   static String sanitize(String name) {
-    return Presets.sanitize(name);
+    return Names.sanitize(name);
   }
 
   // ------------------------------------------------------------ enregistrement
@@ -95,10 +96,10 @@ public class Recorder {
     if (name.isEmpty()) {
       name = "sequence";
     }
-    File f = Presets.safeFile(recordingsDir(), name, ".ppb");
+    File f = Names.safeFile(recordingsDir(), name, ".ppb");
     int n = 2;
     while (f != null && f.exists()) {
-      f = Presets.safeFile(recordingsDir(), name + "-" + (n++), ".ppb");
+      f = Names.safeFile(recordingsDir(), name + "-" + (n++), ".ppb");
     }
     if (f == null) {
       LogBus.error("Enregistreur : nom de séquence refusé : " + rawName);
@@ -231,26 +232,67 @@ public class Recorder {
       LogBus.warn("Enregistreur : " + recDropped + " trame(s) sautee(s) (disque lent).");
     }
     // metadonnees (duree/trames) pour un listing rapide
-    // le flux est ferme dans un finally : Properties.store peut lever (disque
-    // plein, support retire) et le descripteur restait alors ouvert jusqu'au
-    // prochain passage du ramasse-miettes. (PixelPusherBridge)
     Properties meta = new Properties();
     meta.setProperty("durationMs", String.valueOf(durationMs));
     meta.setProperty("frames", String.valueOf(recFrames));
-    File metaFile = Presets.safeFile(recordingsDir(), recName, ".meta");
-    if (metaFile != null) {
-      try {
-        FileOutputStream out = new FileOutputStream(metaFile);
-        try {
-          meta.store(out, "PixelPusher Bridge - sequence");
-        } finally {
-          out.close();
-        }
-      } catch (IOException ignored) {
-      }
-    }
+    ecrireMeta(Names.safeFile(recordingsDir(), recName, ".meta"), meta);
+
     LogBus.info("Enregistrement termine : " + recName + " (" + recFrames
         + " trames, " + (durationMs / 1000) + " s)");
+  }
+
+  /**
+   * Ecriture atomique du fichier .meta, sur le modele d'AppConfig.save().
+   *
+   * L'ancienne version ouvrait un FileOutputStream directement sur la cible :
+   * le fichier etait donc tronque AVANT l'ecriture. Un arret brutal dans cette
+   * fenetre (coupure de courant en fin de spectacle, Stop-Process -Force du
+   * raccourci d'arret) laissait un .meta vide ou a moitie ecrit, que
+   * readMetaDuration() relit sans broncher : la sequence apparaissait alors
+   * avec une duree de 0 s et la barre de progression de lecture restait figee.
+   * On ecrit desormais dans un .tmp, on force les octets sur le disque, puis on
+   * remplace la cible par un renommage (atomique si le systeme de fichiers le
+   * permet). Le flux est ferme dans un finally : Properties.store peut lever
+   * (disque plein, support retire) et le descripteur restait sinon ouvert
+   * jusqu'au prochain passage du ramasse-miettes. (PixelPusherBridge)
+   */
+  private static void ecrireMeta(File metaFile, Properties meta) {
+    if (metaFile == null) {
+      return;
+    }
+    File tmp = new File(metaFile.getParentFile(), metaFile.getName() + ".tmp");
+    try {
+      FileOutputStream out = new FileOutputStream(tmp);
+      try {
+        meta.store(out, "PixelPusher Bridge - sequence");
+        out.flush();
+        try {
+          out.getFD().sync(); // les octets sont reellement sur le disque
+        } catch (java.io.SyncFailedException ignored) {
+          // certains supports ne savent pas forcer : sans gravite
+        }
+      } finally {
+        out.close();
+      }
+      try {
+        java.nio.file.Files.move(tmp.toPath(), metaFile.toPath(),
+            java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+            java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+      } catch (IOException noAtomic) {
+        // Le renommage atomique n'est pas disponible partout (partage reseau
+        // d'un profil itinerant, cle USB, systeme de fichiers exotique) et
+        // l'echec y est signale par une FileSystemException generique et pas
+        // seulement par AtomicMoveNotSupportedException : on rattrape donc
+        // toute IOException avant de se rabattre sur un remplacement simple.
+        java.nio.file.Files.move(tmp.toPath(), metaFile.toPath(),
+            java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+      }
+    } catch (IOException e) {
+      // Les metadonnees ne sont qu'un confort d'affichage : leur echec ne doit
+      // jamais faire echouer la fin d'un enregistrement, la sequence elle-meme
+      // est deja ecrite et complete.
+      tmp.delete();
+    }
   }
 
   // ------------------------------------------------------------ lecture
@@ -258,7 +300,7 @@ public class Recorder {
   /** Lance la lecture d'une sequence. Retourne false si introuvable/erreur. */
   public synchronized boolean play(String rawName, boolean loop) {
     String name = sanitize(rawName);
-    final File f = Presets.safeFile(recordingsDir(), name, ".ppb");
+    final File f = Names.safeFile(recordingsDir(), name, ".ppb");
     if (f == null || !f.isFile()) {
       LogBus.error("Lecture : sequence introuvable : " + name);
       return false;
@@ -398,8 +440,8 @@ public class Recorder {
     if (playing && name.equals(playName)) {
       stopPlay();
     }
-    File f = Presets.safeFile(recordingsDir(), name, ".ppb");
-    File m = Presets.safeFile(recordingsDir(), name, ".meta");
+    File f = Names.safeFile(recordingsDir(), name, ".ppb");
+    File m = Names.safeFile(recordingsDir(), name, ".meta");
     if (f == null) {
       return false;
     }
@@ -411,7 +453,7 @@ public class Recorder {
   }
 
   private long readMetaDuration(String name) {
-    File metaFile = Presets.safeFile(recordingsDir(), name, ".meta");
+    File metaFile = Names.safeFile(recordingsDir(), name, ".meta");
     if (metaFile == null || !metaFile.isFile()) {
       return 0;
     }
@@ -438,9 +480,11 @@ public class Recorder {
 
   // ------------------------------------------------------------ etat / listing
 
-  public boolean isRecording() {
-    return recording;
-  }
+  // isRecording() supprime : aucun appelant dans tout le projet (ni WebServer,
+  // ni Diagnostic, ni web/, ni tests/ — l'interface lit le champ "recording" du
+  // JSON produit par stateJson()). Le code mort ment sur les capacites reelles
+  // de la classe. L'etat reste porte par le champ volatile recording.
+  // (PixelPusherBridge)
 
   public boolean isPlaying() {
     return playing;
@@ -448,24 +492,24 @@ public class Recorder {
 
   /** JSON de l'etat courant (inclus dans /api/status). */
   public String stateJson() {
-    StringBuilder sb = new StringBuilder(160);
     long now = System.currentTimeMillis();
-    sb.append('{');
-    sb.append("\"recording\":").append(recording).append(',');
-    sb.append("\"recError\":\"").append(Json.esc(recError == null ? "" : recError)).append("\",");
-    sb.append("\"recName\":\"").append(Json.esc(recName)).append("\",");
-    sb.append("\"recFrames\":").append(recFrames).append(',');
-    sb.append("\"recSeconds\":").append(recording ? (now - recStartTs) / 1000 : 0).append(',');
-    sb.append("\"playing\":").append(playing).append(',');
-    sb.append("\"playName\":\"").append(Json.esc(playName)).append("\",");
-    sb.append("\"playLoop\":").append(playLoop).append(',');
     long pct = 0;
     if (playing && playDurationMs > 0) {
       pct = Math.min(100, (now - playStartTs) * 100 / playDurationMs);
     }
-    sb.append("\"playPct\":").append(pct);
-    sb.append('}');
-    return sb.toString();
+    return Json.writer(224)
+        .beginObject()
+        .bool("recording", recording)
+        .str("recError", recError == null ? "" : recError)
+        .str("recName", recName)
+        .num("recFrames", recFrames)
+        .num("recSeconds", recording ? (now - recStartTs) / 1000 : 0)
+        .bool("playing", playing)
+        .str("playName", playName)
+        .bool("playLoop", playLoop)
+        .num("playPct", pct)
+        .endObject()
+        .done();
   }
 
   /** JSON de la liste des sequences enregistrees. */
@@ -484,22 +528,16 @@ public class Recorder {
         return a.getName().compareToIgnoreCase(b.getName());
       }
     });
-    StringBuilder sb = new StringBuilder(512);
-    sb.append('[');
-    boolean first = true;
+    Json.Writer w = Json.writer(512).beginArray();
     for (File f : ppb) {
-      if (!first) {
-        sb.append(',');
-      }
-      first = false;
       String name = f.getName().replace(".ppb", "");
       long dur = readMetaDuration(name);
-      sb.append("{\"name\":\"").append(Json.esc(name))
-        .append("\",\"sizeBytes\":").append(f.length())
-        .append(",\"durationSec\":").append(dur / 1000)
-        .append('}');
+      w.beginObject()
+       .str("name", name)
+       .num("sizeBytes", f.length())
+       .num("durationSec", dur / 1000)
+       .endObject();
     }
-    sb.append(']');
-    return sb.toString();
+    return w.endArray().done();
   }
 }

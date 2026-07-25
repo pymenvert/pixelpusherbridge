@@ -394,9 +394,11 @@ public final class LogBus {
     LISTENERS.add(l);
   }
 
-  public static void removeListener(Listener l) {
-    LISTENERS.remove(l);
-  }
+  // removeListener() supprime : aucun appelant dans tout le projet. Il laissait
+  // croire que les abonnes SSE etaient desabonnes un par un, alors que le
+  // serveur web enregistre UN seul abonne permanent qui alimente une file
+  // partagee. Le code mort envoyait sur une fausse piste en cas de recherche de
+  // fuite.
 
   /** Historique depuis un numero de sequence (0 = tout). */
   public static List<Entry> getSince(long seq) {

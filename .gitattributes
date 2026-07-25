@@ -1,0 +1,22 @@
+# Le développement se fait sous Windows, la cible principale est macOS : sans
+# ces règles, git livrerait les scripts shell avec des fins de ligne CRLF et
+# macOS refuserait de les exécuter avec le message « bad interpreter:
+# /bin/bash^M » — panne parfaitement incompréhensible pour l'utilisateur.
+# C'est le pendant du piège déjà documenté dans DEVNOTES sur le bit exécutable.
+
+*.sh        text eol=lf
+*.command   text eol=lf
+build.sh    text eol=lf
+
+# Le lanceur macOS de l'app n'a pas d'extension.
+packaging/macos/PixelPusherBridge text eol=lf
+
+# Les scripts Windows, eux, veulent des fins de ligne Windows.
+*.bat       text eol=crlf
+
+# Ne jamais convertir : ce sont des binaires.
+*.icns      binary
+*.png       binary
+*.pdf       binary
+*.jar       binary
+*.zip       binary

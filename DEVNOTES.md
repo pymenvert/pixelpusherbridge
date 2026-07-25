@@ -73,9 +73,9 @@ tous, lanceur en 0755), au lieu de laisser l'umask de la machine décider. Voir 
 
 ### 8. Avertissement « would increase delay, but autothrottle is disabled »
 Ce n'est **pas** une erreur : le pusher signale qu'il reçoit plus vite qu'il ne peut suivre.
-Solution utilisateur : activer l'auto-throttle dans Configuration. Amélioration possible :
-reclasser ce message en WARN plutôt qu'en rouge/erreur, et le détecter dans `Diagnostic`
-pour suggérer directement l'auto-throttle.
+Solution utilisateur : activer l'auto-throttle dans Configuration.
+**Fait depuis :** `LegacyMessages` traduit et reclasse ce message en WARN, et le `Diagnostic`
+le détecte pour suggérer directement l'auto-throttle.
 
 ### 9. L'interface web qui ne démarre plus (Windows, 2026-07)
 
@@ -172,7 +172,51 @@ d'autorisation « Réseau local ». Un refus est **totalement silencieux côté 
 datagrammes sont jetés, aucune exception, aucun log — plus aucun pusher découvert alors que
 tout paraît normal. Le texte de la demande vient de `NSLocalNetworkUsageDescription`, désormais
 présent dans `packaging/macos/Info.plist`. Si un Mac ne découvre rien : Réglages Système →
-Confidentialité et sécurité → Réseau local.
+Confidentialité et sécurité → Réseau local. Le `Diagnostic` rappelle désormais ce point
+de lui-même, mais uniquement sur macOS, quand aucun pusher n'est détecté.
+
+### 17. La plage de ports web est un invariant partagé (`AppConfig.PORT_SCAN_RANGE`)
+
+Deux boucles totalement indépendantes balaient la même plage de ports :
+
+- `WebServer.bind()` cherche un port libre pour l'interface, à partir du port configuré ;
+- `Main.detectRunningInstance()` cherche une instance déjà en marche, sur la même plage.
+
+Elles **doivent** couvrir exactement `port → port + PORT_SCAN_RANGE`. Chacune écrivait sa
+propre borne en dur (`base + 10`), et c'était une bombe à retardement : élargir la première
+sans la seconde donne un bridge qui démarre sur un port que le verrou d'instance ne regarde
+pas. Le second lancement ne voit alors **aucune** instance, démarre, et deux bridges poussent
+simultanément vers les mêmes pushers — LED erratiques, sans le moindre message d'erreur.
+C'est exactement le piège n°3, dans une variante indétectable à la lecture.
+
+**Résolu :** la borne vit à un seul endroit, `AppConfig.PORT_SCAN_RANGE` (valeur 10), avec
+l'invariant écrit en Javadoc juste au-dessus. Les deux boucles la lisent, ainsi que les
+messages d'erreur (« Ports X à Y tous indisponibles ») qui affichaient auparavant une plage
+recopiée à la main — donc susceptible de mentir.
+**Règle :** une constante partagée par deux fichiers qui doivent rester d'accord ne se
+duplique jamais, même quand la valeur « ne changera jamais ».
+
+### 18. `MiniHttpServer` ferme la connexion dès que le handler rend la main
+
+Le serveur du JDK et le serveur de secours n'ont pas le même cycle de vie, et un même
+handler doit pourtant fonctionner sur les deux :
+
+| | serveur du JDK | `MiniHttpServer` |
+|---|---|---|
+| après le `return` du handler | l'échange **survit** : on peut continuer à écrire depuis un autre thread | la socket est **fermée** (`handleOne` appelle `finish()` puis rend la connexion) |
+
+Conséquence pour `/api/logs`, qui est un flux SSE volontairement infini : sur le serveur de
+secours, rendre la main coupe le journal au bout d'une ligne — le navigateur se reconnecte
+en boucle et l'onglet Logs clignote sans rien afficher. Il faut donc **tenir la ligne** dans
+le handler (`client.awaitClose()`), et seulement là. Faire la même chose sur le serveur du
+JDK serait un défaut symétrique : un thread du pool web immobilisé pour rien, par client
+connecté au journal.
+
+**Résolu :** `handleSse()` n'attend que si `miniServer != null`. C'est sans danger de ce
+côté : le serveur de secours accepte 64 connexions et le nombre de clients du journal est
+plafonné à 20. Le raisonnement est écrit sur place, dans les deux fichiers.
+**Règle :** dès qu'un handler fait quelque chose d'inhabituel avec la durée de vie de
+l'échange (flux continu, réponse différée), vérifier explicitement les **deux** serveurs.
 
 ## Validations effectuées
 
@@ -189,6 +233,13 @@ Confidentialité et sécurité → Réseau local.
   d'univers quand il ne reste plus assez de canaux pour une LED entière).
 - **QR** : 6 formes d'URL validées par décodeur indépendant.
 - **Icône système** : vérifiée visuellement sur Windows (menu clic droit fonctionnel).
+- **`build.sh`** : exécuté sur une copie complète du projet (41 sources hors `*Test.java`,
+  bytecode relu à 55, jar contenant `web/index.html`, `web/mobile.html` et
+  `META-INF/LICENSE`, `Main-Class` correct, contrôle de version 1.6.0 concordant).
+  Chemin d'erreur « JDK absent » vérifié en vidant le `PATH` : message explicite, code 1.
+  Le script écrit le jar dans `build/` puis le déplace : sous Unix le remplacement crée un
+  nouvel inode, une instance en marche n'est donc pas corrompue (contrairement à Windows,
+  où `BUILD.bat` doit arrêter les instances au préalable).
 
 ## Idées non implémentées (backlog)
 
@@ -203,11 +254,47 @@ Confidentialité et sécurité → Réseau local.
   interfaces sans mot de passe : sur le réseau d'un lieu, n'importe qui peut
   déclencher un blackout. Piste retenue : jeton dans l'URL du QR code, et refus
   des requêtes non locales sans jeton. À faire avant une diffusion large.
-- **CSRF** — une page web ouverte sur le poste de régie peut poster sur
-  `/api/action`. Piste : exiger un en-tête `X-Requested-With` (les formulaires
-  HTML ne peuvent pas en envoyer) et vérifier l'origine.
-- Les 20 findings majeurs restants et les 47 mineurs sont listés dans
-  `audit-findings.json`, avec pour chacun un correctif proposé.
+  *Partiellement couvert :* l'arrêt et le redémarrage sont déjà réservés à
+  l'ordinateur qui exécute le bridge (`WebServer.isLocalRequest`, qui répond
+  « même ordinateur » et non « même réseau » — la boucle locale seule ne suffisait
+  pas, l'interface étant très souvent ouverte par son adresse LAN). Le reste des
+  commandes est volontairement ouvert : c'est ce qui rend l'accès téléphone par
+  QR code utilisable sans configuration.
+- Le détail des findings de l'audit reste dans `audit-findings.json` et
+  `audit-reste.json`, avec pour chacun le correctif appliqué ou proposé.
+
+**Fait depuis (ne pas rouvrir) :**
+
+- **CSRF** — traité : les requêtes portant un en-tête `Origin` étranger sont
+  refusées en 403 avec un message explicite dans les logs ; une page web ouverte
+  à côté sur le poste de régie ne peut plus poster sur `/api/action`.
+- **Écritures de fichiers atomiques** — configuration, presets et métadonnées de
+  séquences passent tous par `.tmp` + `sync()` + `ATOMIC_MOVE`, avec repli sur un
+  déplacement simple (plusieurs systèmes de fichiers signalent l'échec par une
+  `FileSystemException` générique, pas par `AtomicMoveNotSupportedException` :
+  rattraper `IOException` largement, sinon le repli ne se déclenche jamais).
+  La configuration garde en plus une copie de secours de la dernière version
+  saine, relue automatiquement si le fichier principal devient illisible.
+- **Fusion des presets** — un preset complète la configuration au lieu de la
+  remplacer : une clé absente du fichier garde sa valeur courante. Sans cela,
+  tout réglage ajouté dans une version ultérieure du logiciel retombait à son
+  défaut codé en dur au premier chargement de preset.
+- **Options de ligne de commande non persistantes** — `--port` s'applique au
+  lancement courant et n'est jamais écrit dans `config.properties` ni photographié
+  dans un preset (`AppConfig.webPortOverride`). Règle générale : une option de
+  dépannage ne modifie pas la configuration de l'utilisateur.
+- **Watchdog et lecture de séquence** — pendant un scénario de test ou la lecture
+  d'un enregistrement, les pixels sont alimentés par le bridge lui-même et
+  `universeLastSeen` ne bouge plus : le watchdog est exempté, sans quoi il
+  intercalait une trame noire en plein spectacle. La purge des tables du moniteur,
+  elle, a lieu **avant** ce test d'exemption — et ne supprime jamais l'univers vu
+  le plus récemment, sinon `lastDmxAt()` retomberait à zéro et le blackout de
+  sécurité ne partirait plus jamais pour un délai réglé au-delà de 60 s.
+- **Bornes du serveur web** — délai de requête de 20 s
+  (`sun.net.httpserver.maxReqTime`, à poser **avant** le premier
+  `HttpServer.create`), pool de threads borné, connexions simultanées plafonnées
+  côté serveur de secours. Ne jamais poser `maxRspTime` : il couperait le flux de
+  logs, volontairement infini.
 
 **Autres idées :**
 
@@ -222,8 +309,12 @@ Confidentialité et sécurité → Réseau local.
 
 Ce que la chaîne de développement suppose, sans identifier de machine particulière :
 
-- **Compilation sous Windows** avec un JDK installé (`BUILD.bat`), **empaquetage macOS sous
-  Unix** (`packaging/make_mac_app.sh`, voir piège n°7).
+- **Compilation** avec un JDK installé : `BUILD.bat` sous Windows, `build.sh` sous macOS ou
+  Linux — les deux produisent le même jar et relisent la version du bytecode (55 = Java 11).
+  L'**empaquetage macOS reste obligatoirement sous Unix** (`packaging/make_mac_app.sh`,
+  voir piège n°7) : un zip fabriqué sous Windows perd le bit exécutable du lanceur.
+  Chaîne habituelle : compiler et faire passer `VERIFIER-TOUT.bat` sous Windows, puis
+  assembler l'archive macOS depuis un Mac ou une machine Linux.
 - Cible de validation : **Mac Apple Silicon sous macOS 13 ou plus récent**, un contrôleur
   PixelPusher 8 lignes × 96 px en firmware 141, MadMapper comme source Art-Net.
 - Sources également utilisées en exploitation : grandMA3, BEYOND, Resolume.

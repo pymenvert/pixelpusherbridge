@@ -125,10 +125,14 @@
 
   <div class="card">
     <div class="lbl">Luminosité globale</div>
-    <div class="rowflex">
-      <input type="range" id="bright" min="1" max="100" value="100">
-      <span class="val" id="brightVal">100 %</span>
+    <!-- Le curseur reste masqué tant que la vraie valeur n'est pas arrivée :
+         affiché d'office à 100 %, il ferait croire que les LED sont à fond et
+         un simple effleurement enverrait cette valeur fausse au bridge. -->
+    <div class="rowflex" id="brightRow" style="display:none">
+      <input type="range" id="bright" min="1" max="100" value="100" aria-label="Luminosité globale">
+      <span class="val" id="brightVal">— %</span>
     </div>
+    <div class="empty" id="brightWait">Lecture de la valeur en cours&hellip;</div>
   </div>
 
   <div class="card">
@@ -153,12 +157,12 @@
 
   <div class="card">
     <div class="lbl">Presets</div>
-    <div class="list" id="presetList"><span class="empty">Aucun preset — crée-les depuis l'interface complète.</span></div>
+    <div class="list" id="presetList"><span class="empty">Chargement&hellip;</span></div>
   </div>
 
   <div class="card">
     <div class="lbl">Séquences enregistrées</div>
-    <div class="list" id="recList"><span class="empty">Aucune séquence.</span></div>
+    <div class="list" id="recList"><span class="empty">Chargement&hellip;</span></div>
   </div>
 
   <a class="desktop" href="/">Ouvrir l'interface complète &rarr;</a>
@@ -203,23 +207,14 @@ function refresh(){
     setConn(true,"Connecté");
     $("stateLine").classList.remove("stale");
     $("staleLine").classList.remove("show");
-    var line="<b>"+s.pushers.length+"</b> PixelPusher(s) · <b>"+s.artnetPps+"</b> pqt/s Art-Net";
-    if(s.health&&!s.health.dmxDataRecent&&!s.testMode&&!(s.recorder&&s.recorder.playing))
-      line+=" · <span style='color:var(--warn)'>pas de données DMX</span>";
-    $("stateLine").innerHTML=line;
-    if(!touched)$("testOn").checked=s.testMode;
-    $("testLabel").textContent=s.testMode?(s.testLabel||""):"";
-    var b=$("banner"),msgs=[];
-    if(s.testMode)msgs.push("Mode test actif — Art-Net entrant ignoré.");
-    if(s.recorder&&s.recorder.playing)msgs.push("Lecture : "+s.recorder.playName+(s.recorder.playLoop?" (boucle)":""));
-    if(s.recorder&&s.recorder.recording)msgs.push("⏺ Enregistrement : "+s.recorder.recName+" ("+s.recorder.recSeconds+" s)");
-    if(s.watchdogTriggered)msgs.push("Watchdog déclenché — blackout de sécurité.");
-    if(s.blackoutActive)msgs.push("⚫ BLACKOUT ACTIF — rien ne se rallumera avant la reprise.");
-    $("boBtn").style.display=s.blackoutActive?"none":"";
-    $("resumeBtn").style.display=s.blackoutActive?"":"none";
-    b.textContent=msgs.join(" · ");b.classList.toggle("show",msgs.length>0);
-    playingName=(s.recorder&&s.recorder.playing)?s.recorder.playName:"";
-    renderRecButtons();
+    /* Le rendu est isole du reseau : rattache a la meme chaine .then, la moindre
+       exception d'affichage (champ manquant, JSON partiel) ferait annoncer
+       « Deconnecte » alors que le bridge repond parfaitement. */
+    try{
+      afficherStatut(s);
+    }catch(err){
+      if(window.console&&console.error)console.error("Affichage de l’état :",err);
+    }
   }).catch(function(){
     fails++;
     if(fails<3)return;
@@ -236,18 +231,42 @@ function refresh(){
     sl.classList.add("show");
   });
 }
+function afficherStatut(s){
+  var pushers=s.pushers||[];
+  var line="<b>"+pushers.length+"</b> PixelPusher(s) · <b>"+(s.artnetPps||0)+"</b> pqt/s Art-Net";
+  if(s.health&&!s.health.dmxDataRecent&&!s.testMode&&!(s.recorder&&s.recorder.playing))
+    line+=" · <span style='color:var(--warn)'>pas de données DMX</span>";
+  $("stateLine").innerHTML=line;
+  if(!touched)$("testOn").checked=!!s.testMode;
+  $("testLabel").textContent=s.testMode?(s.testLabel||""):"";
+  /* Blackout : etat verrouille, meme formulation que sur le bureau. Un champ
+     absent du JSON (vieux bridge) vaut « pas de blackout » : on affiche le
+     bouton BLACKOUT, jamais un « Reprendre » qui ne servirait a rien. */
+  var bo=!!s.blackoutActive;
+  var b=$("banner"),msgs=[];
+  if(s.testMode)msgs.push("Mode test actif — Art-Net entrant ignoré.");
+  if(s.recorder&&s.recorder.playing)msgs.push("Lecture : "+s.recorder.playName+(s.recorder.playLoop?" (boucle)":""));
+  if(s.recorder&&s.recorder.recording)msgs.push("⏺ Enregistrement : "+s.recorder.recName+" ("+s.recorder.recSeconds+" s)");
+  if(s.watchdogTriggered)msgs.push("Watchdog déclenché — blackout de sécurité.");
+  if(bo)msgs.push("⚫ BLACKOUT ACTIF — les données entrantes sont ignorées, rien ne se rallumera avant la reprise.");
+  $("boBtn").style.display=bo?"none":"";
+  $("resumeBtn").style.display=bo?"":"none";
+  b.textContent=msgs.join(" · ");b.classList.toggle("show",msgs.length>0);
+  playingName=(s.recorder&&s.recorder.playing)?s.recorder.playName:"";
+  renderRecButtons();
+}
 setInterval(refresh,2000);refresh();
 
 /* ---------- actions ---------- */
 function blackout(){
   post("/api/action",{action:"blackout"}).then(function(){
-    toast("BLACKOUT actif — flux entrant ignoré");touched=false;refresh();
-  }).catch(function(){toast("Bridge injoignable");});
+    toast("BLACKOUT actif — flux entrant ignoré jusqu’à la reprise");touched=false;refresh();
+  }).catch(function(){toast("Bridge injoignable — blackout NON appliqué");});
 }
 function reprendre(){
   post("/api/action",{action:"resume"}).then(function(){
-    toast("Blackout levé");refresh();
-  }).catch(function(){toast("Bridge injoignable");});
+    toast("Blackout levé — la console reprend la main");refresh();
+  }).catch(function(){toast("Bridge injoignable — blackout toujours actif");});
 }
 var brightTimer=null;
 $("bright").addEventListener("input",function(){
@@ -255,20 +274,40 @@ $("bright").addEventListener("input",function(){
   var v=this.value;
   clearTimeout(brightTimer);
   brightTimer=setTimeout(function(){
-    post("/api/config",{brightness:(v/100).toFixed(2)}).then(function(){toast("Luminosité "+v+" %");});
+    post("/api/config",{brightness:(v/100).toFixed(2)})
+      .then(function(){toast("Luminosité "+v+" %");})
+      .catch(function(){toast("Bridge injoignable — luminosité non appliquée");});
   },350);
 });
-fetch("/api/config").then(function(r){return r.json();}).then(function(c){
-  $("bright").value=Math.round(c.brightness*100);
-  $("brightVal").textContent=Math.round(c.brightness*100)+" %";
-});
+/* Lecture de la vraie luminosité au démarrage. Si le bridge ne répond pas on le
+   dit clairement et on réessaie : la page se répare toute seule dès son retour,
+   sans que personne ait à la recharger en pleine représentation. */
+function chargerLuminosite(){
+  fetch("/api/config",{cache:"no-store"}).then(function(r){return r.json();}).then(function(c){
+    var pct=Math.round((typeof c.brightness==="number"?c.brightness:1)*100);
+    if(!(pct>=1))pct=1;
+    if(pct>100)pct=100;
+    $("bright").value=pct;
+    $("brightVal").textContent=pct+" %";
+    $("brightWait").style.display="none";
+    $("brightRow").style.display="";
+  }).catch(function(){
+    $("brightWait").textContent="Bridge injoignable — luminosité indisponible, nouvel essai…";
+    setTimeout(chargerLuminosite,3000);
+  });
+}
+chargerLuminosite();
 
 /* ---------- test ---------- */
 function sendTest(){
   touched=true;
   post("/api/test",{enabled:$("testOn").checked,pattern:curPattern,
     color:$("testColor").value,brightness:100,speed:1,linePusher:-1,lineStrip:-1})
-    .then(function(){setTimeout(function(){touched=false;},1500);});
+    .then(function(){setTimeout(function(){touched=false;},1500);})
+    /* Sur echec on relache tout de suite le verrou : le prochain rafraichissement
+       remet l'interrupteur sur l'etat reel du bridge, sans laisser croire que le
+       mode test a change. */
+    .catch(function(){touched=false;toast("Bridge injoignable — test non appliqué");});
 }
 $("testOn").addEventListener("change",sendTest);
 $("testColor").addEventListener("change",function(){curPattern="solid";selBtn();sendTest();});
@@ -292,8 +331,8 @@ $("presetList").addEventListener("click",function(ev){
   if(!b)return;
   var n=b.dataset.n;
   post("/api/presets",{action:"load",name:n}).then(function(r){
-    toast(r.ok?"Preset chargé : "+n:"Erreur");
-  }).catch(function(){toast("Bridge injoignable");});
+    toast(r.ok?("Preset chargé : "+n):("Échec du chargement du preset "+n));
+  }).catch(function(){toast("Bridge injoignable — preset non chargé");});
 });
 var lastPresetState=null;
 function loadPresets(){
@@ -309,16 +348,28 @@ function loadPresets(){
       return '<div class="item"><span class="n">'+esc(n)+'</span>'
         +'<button class="load" data-n="'+esc(n)+'">Charger</button></div>';
     }).join("");
-  }).catch(function(){});
+  }).catch(function(){
+    /* Un panneau vide et muet ferait croire qu'il n'y a aucun preset. On ne
+       l'ecrit que si la liste n'a jamais ete lue (lastPresetState encore null) :
+       sinon on garde la derniere liste connue, plus utile qu'un message. */
+    if(lastPresetState===null)
+      $("presetList").innerHTML='<span class="empty">Bridge injoignable — liste des presets indisponible. Nouvel essai automatique.</span>';
+  });
 }
 loadPresets();setInterval(loadPresets,15000);
 
 /* ---------- séquences ---------- */
-var recData=[], lastRecState=null;
+var recData=[], lastRecState=null, recLoaded=false;
 function loadRecs(){
   fetch("/api/recorder").then(function(r){return r.json();}).then(function(d){
-    recData=d.recordings||[];renderRecButtons();
-  }).catch(function(){});
+    recData=d.recordings||[];recLoaded=true;renderRecButtons();
+  }).catch(function(){
+    /* Meme principe que pour les presets : on ne remplace la liste par un
+       message que si on n'a jamais rien recu ; sinon la derniere liste connue
+       reste affichee, plus utile qu'un message. */
+    if(!recLoaded)
+      $("recList").innerHTML='<span class="empty">Bridge injoignable — séquences indisponibles. Nouvel essai automatique.</span>';
+  });
 }
 /* Meme principe que pour les presets : un seul listener, pose une fois. */
 $("recList").addEventListener("click",function(ev){
@@ -328,14 +379,17 @@ $("recList").addEventListener("click",function(ev){
     var n=b.dataset.n;
     post("/api/recorder",{action:"play",name:n,loop:true})
       .then(function(){toast("Lecture : "+n);refresh();})
-      .catch(function(){toast("Bridge injoignable");});
+      .catch(function(){toast("Bridge injoignable — lecture non démarrée");});
   }else if(b.classList.contains("stop")){
     post("/api/recorder",{action:"stopPlay"})
       .then(function(){toast("Lecture arrêtée");refresh();})
-      .catch(function(){toast("Bridge injoignable");});
+      .catch(function(){toast("Bridge injoignable — lecture toujours en cours");});
   }
 });
 function renderRecButtons(){
+  /* refresh() appelle cette fonction des la premiere seconde : sans ce garde-fou
+     elle annoncerait « Aucune sequence » avant meme d'avoir interroge le bridge. */
+  if(!recLoaded)return;
   var el=$("recList");
   /* refresh() appelle cette fonction toutes les 2 s : sans cette empreinte, le
      HTML serait reecrit sans arret et un appui en cours serait annule (un

@@ -471,28 +471,37 @@ public class AppConfig {
     return Math.max(min, Math.min(max, v));
   }
 
-  /** Serialisation JSON pour l'interface web. */
+  /**
+   * Serialisation JSON pour l'interface web.
+   *
+   * Passe par Json.Writer : memes cles, meme ordre, memes types qu'avant, mais
+   * plus aucune valeur inseree sans echappement. getColourOrder() etait
+   * concatenee telle quelle ; la valeur est validee par une expression
+   * reguliere donc il n'y avait pas de danger immediat, mais la regle doit
+   * etre systematique pour ne pas dependre d'une validation situee ailleurs.
+   * (PixelPusherBridge)
+   */
   public synchronized String toJson() {
-    StringBuilder sb = new StringBuilder(256);
-    sb.append('{');
-    sb.append("\"version\":\"").append(VERSION).append("\",");
-    sb.append("\"webPort\":").append(getWebPort()).append(',');
-    sb.append("\"colourOrder\":\"").append(getColourOrder()).append("\",");
-    sb.append("\"packing\":").append(isPacking()).append(',');
-    sb.append("\"debug\":").append(isDebug()).append(',');
-    sb.append("\"sacnEnabled\":").append(isSacnEnabled()).append(',');
-    sb.append("\"autoThrottle\":").append(isAutoThrottle()).append(',');
-    sb.append("\"powerLimitAmps\":").append(getPowerLimitAmps()).append(',');
-    sb.append("\"milliampsPerChannel\":").append(getMilliampsPerChannel()).append(',');
-    sb.append("\"frameLimit\":").append(getFrameLimit()).append(',');
-    sb.append("\"extraDelayMs\":").append(getExtraDelayMs()).append(',');
-    sb.append("\"antiLog\":").append(isAntiLog()).append(',');
-    sb.append("\"brightness\":").append(getBrightness()).append(',');
-    sb.append("\"openBrowser\":").append(isOpenBrowser()).append(',');
-    sb.append("\"expiryEnabled\":").append(isExpiryEnabled()).append(',');
-    sb.append("\"watchdogSec\":").append(getWatchdogSec()).append(',');
-    sb.append("\"blackoutOnExit\":").append(isBlackoutOnExit());
-    sb.append('}');
-    return sb.toString();
+    return Json.writer(384)
+        .beginObject()
+        .str("version", VERSION)
+        .num("webPort", getWebPort())
+        .str("colourOrder", getColourOrder())
+        .bool("packing", isPacking())
+        .bool("debug", isDebug())
+        .bool("sacnEnabled", isSacnEnabled())
+        .bool("autoThrottle", isAutoThrottle())
+        .num("powerLimitAmps", getPowerLimitAmps())
+        .num("milliampsPerChannel", getMilliampsPerChannel())
+        .num("frameLimit", getFrameLimit())
+        .num("extraDelayMs", getExtraDelayMs())
+        .bool("antiLog", isAntiLog())
+        .num("brightness", getBrightness())
+        .bool("openBrowser", isOpenBrowser())
+        .bool("expiryEnabled", isExpiryEnabled())
+        .num("watchdogSec", getWatchdogSec())
+        .bool("blackoutOnExit", isBlackoutOnExit())
+        .endObject()
+        .done();
   }
 }

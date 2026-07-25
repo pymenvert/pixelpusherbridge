@@ -11,7 +11,11 @@ import java.io.File;
  *
  * Ces tests ne touchent jamais a la configuration reelle de l'utilisateur :
  * tout ce qui ecrit sur disque le fait dans un dossier temporaire supprime
- * a la fin.
+ * a la fin. Les tests qui doivent exercer les vrais chemins de l'application
+ * (~/.pixelpusherbridge/presets, /recordings, config.properties) deplacent
+ * temporairement « user.home » dans ce dossier temporaire et le remettent en
+ * place ensuite ; le filet de securite ci-dessous garantit qu'il est restaure
+ * meme si un test echoue en cours de route.
  */
 public final class RunTests {
 
@@ -27,10 +31,14 @@ public final class RunTests {
       System.out.println("Impossible de creer le dossier temporaire de test.");
       System.exit(1);
     }
+    String foyerReel = System.getProperty("user.home");
+    String osReel = System.getProperty("os.name");
     try {
       UnitTests.run(temp);
       HttpTests.run();
     } finally {
+      System.setProperty("user.home", foyerReel);
+      System.setProperty("os.name", osReel);
       supprimer(temp);
     }
     System.exit(Harness.bilan());

@@ -4,10 +4,13 @@ import static com.pixelpusher.bridge.Harness.check;
 import static com.pixelpusher.bridge.Harness.egal;
 import static com.pixelpusher.bridge.Harness.groupe;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
@@ -23,20 +26,46 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 
 /**
- * Tests de bout en bout du serveur HTTP de secours.
+ * Tests de bout en bout du serveur HTTP de secours ET des garde-fous que le
+ * serveur web applique a toute requete entrante.
  *
- * Ce serveur prend le relais quand le serveur du JDK ne peut pas demarrer
- * (pare-feu bloquant le selecteur NIO). C'est donc du code neuf sur le chemin
- * de l'interface : il doit etre couvert serieusement, y compris sur les cas
- * tordus (requete malformee, corps enorme, connexion reutilisee, charge).
+ * Le serveur de secours prend le relais quand le serveur du JDK ne peut pas
+ * demarrer (pare-feu bloquant le selecteur NIO). C'est donc du code neuf sur le
+ * chemin de l'interface : il doit etre couvert serieusement, y compris sur les
+ * cas tordus (requete malformee, corps enorme, connexion reutilisee, charge).
+ *
+ * Les garde-fous de WebServer (controle d'origine, limite de taille du corps,
+ * lecture des valeurs du formulaire) sont des methodes privees : ce sont des
+ * details d'implementation, pas une API. On les sollicite donc par reflexion,
+ * en leur presentant de VRAIS echanges HTTP produits par le serveur de secours
+ * — pas des objets simules qui ne prouveraient rien.
  */
 public final class HttpTests {
 
   private HttpTests() {
   }
 
+  // Methodes privees de WebServer, resolues une fois au demarrage du groupe.
+  private static Method mCheckOrigin;
+  private static Method mIsLocalRequest;
+  private static Method mParseForm;
+  private static Method mReadAll;
+  private static Method mParseDouble;
+  private static Method mParseInt;
+  private static Method mParseLong;
+
   static void run() throws Exception {
     groupe("Serveur HTTP de secours");
+
+    try {
+      resoudreMethodes();
+    } catch (NoSuchMethodException e) {
+      // Un garde-fou a disparu de WebServer : on le dit en clair avant de
+      // laisser l'echec remonter, sinon le banc s'arreterait sur une trace
+      // incomprehensible.
+      check("les garde-fous de WebServer sont toujours en place (" + e.getMessage() + ")", false);
+      throw e;
+    }
 
     MiniHttpServer serveur = MiniHttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
     final int port = serveur.getPort();
@@ -82,6 +111,53 @@ public final class HttpTests {
         throw new IllegalStateException("panne simulee dans un handler");
       }
     });
+
+    // ----- endpoints qui exercent les garde-fous reels de WebServer -----
+
+    // Reproduit ce que fait SafeHandler avant d'appeler le moindre handler :
+    // si checkOrigin refuse, il a deja emis lui-meme sa reponse 403.
+    serveur.createContext("/api/origine", new HttpHandler() {
+      public void handle(HttpExchange ex) throws IOException {
+        Object autorise;
+        try {
+          autorise = mCheckOrigin.invoke(null, ex);
+        } catch (Exception e) {
+          repond(ex, 500, "text/plain; charset=utf-8", "reflexion : " + e);
+          return;
+        }
+        if (Boolean.TRUE.equals(autorise)) {
+          repond(ex, 200, "text/plain; charset=utf-8", "commande acceptee");
+        }
+      }
+    });
+    serveur.createContext("/api/local", new HttpHandler() {
+      public void handle(HttpExchange ex) throws IOException {
+        try {
+          repond(ex, 200, "text/plain; charset=utf-8",
+              String.valueOf(mIsLocalRequest.invoke(null, ex)));
+        } catch (Exception e) {
+          repond(ex, 500, "text/plain; charset=utf-8", "reflexion : " + e);
+        }
+      }
+    });
+    // Le corps trop volumineux remonte sous la forme d'une IOException dediee,
+    // que SafeHandler traduit en 413 : on verifie ici le type exact et la
+    // taille a partir de laquelle il est leve.
+    serveur.createContext("/api/formulaire", new HttpHandler() {
+      public void handle(HttpExchange ex) throws IOException {
+        try {
+          Map<?, ?> champs = (Map<?, ?>) mParseForm.invoke(null, ex);
+          repond(ex, 200, "text/plain; charset=utf-8",
+              champs.size() + "|" + champs.get("action") + "|" + champs.get("nom"));
+        } catch (InvocationTargetException e) {
+          Throwable cause = e.getCause();
+          repond(ex, 413, "text/plain; charset=utf-8",
+              cause.getClass().getSimpleName() + "|" + (cause instanceof IOException));
+        } catch (Exception e) {
+          repond(ex, 500, "text/plain; charset=utf-8", "reflexion : " + e);
+        }
+      }
+    });
     serveur.start();
 
     try {
@@ -91,6 +167,9 @@ public final class HttpTests {
       connexionReutilisee(port);
       flux(port);
       charge(port);
+      protectionCsrf(port);
+      corpsTropVolumineux(port);
+      valeursDuFormulaire();
     } finally {
       serveur.stop();
     }
@@ -106,6 +185,22 @@ public final class HttpTests {
       liberable = false;
     }
     check("le port est reellement libere a l'arret", liberable);
+  }
+
+  private static void resoudreMethodes() throws Exception {
+    mCheckOrigin = methodePrivee("checkOrigin", HttpExchange.class);
+    mIsLocalRequest = methodePrivee("isLocalRequest", HttpExchange.class);
+    mParseForm = methodePrivee("parseForm", HttpExchange.class);
+    mReadAll = methodePrivee("readAll", InputStream.class, int.class);
+    mParseDouble = methodePrivee("parseDouble", String.class, double.class);
+    mParseInt = methodePrivee("parseInt", String.class, int.class);
+    mParseLong = methodePrivee("parseLong", String.class, long.class);
+  }
+
+  private static Method methodePrivee(String nom, Class<?>... signature) throws Exception {
+    Method m = WebServer.class.getDeclaredMethod(nom, signature);
+    m.setAccessible(true);
+    return m;
   }
 
   // ------------------------------------------------------------------
@@ -273,6 +368,185 @@ public final class HttpTests {
   }
 
   // ------------------------------------------------------------------
+  /**
+   * Protection CSRF et restrictions d'origine.
+   *
+   * Sans ce controle, n'importe quel onglet ouvert sur l'ordinateur de regie
+   * peut poster sur /api/action : un POST en form-urlencoded est une requete
+   * « simple » au sens du navigateur, il part sans autorisation prealable et la
+   * page malveillante n'a meme pas besoin d'en lire la reponse pour arreter le
+   * bridge en pleine representation.
+   */
+  private static void protectionCsrf(int port) throws Exception {
+    groupe("Protection CSRF et origine des commandes");
+
+    Reponse r = postAvec(port, "/api/origine", "action=blackout", "");
+    egal("un POST sans en-tete Origin est accepte (outils en ligne de commande)",
+        200, r.code);
+
+    r = postAvec(port, "/api/origine", "action=blackout", "Origin: http://x\r\n");
+    egal("un POST venu de l'interface elle-meme est accepte", 200, r.code);
+
+    r = postAvec(port, "/api/origine", "action=blackout", "Origin: HTTP://X\r\n");
+    egal("la comparaison ignore la casse (un navigateur peut normaliser)", 200, r.code);
+
+    r = postAvec(port, "/api/origine", "action=stop", "Origin: http://page-piegee.example\r\n");
+    egal("un POST venu d'une AUTRE page est refuse", 403, r.code);
+    check("le refus est explique a l'operateur", r.corps.contains("Origine non autoris"));
+
+    r = postAvec(port, "/api/origine", "action=stop", "Origin: http://x:9999\r\n");
+    egal("un autre service de la meme machine, sur un autre port, est refuse", 403, r.code);
+
+    r = postAvec(port, "/api/origine", "action=stop", "Origin: null\r\n");
+    egal("un Origin « null » (iframe bac a sable) est refuse", 403, r.code);
+
+    r = postAvec(port, "/api/origine", "action=stop", "Origin: http://x.evil.example\r\n");
+    egal("un hote qui se contente de finir par le bon nom est refuse", 403, r.code);
+
+    // La lecture n'est jamais bloquee : seules les commandes le sont.
+    r = brut(port, "GET /api/origine HTTP/1.1\r\nHost: x\r\n"
+        + "Origin: http://page-piegee.example\r\nConnection: close\r\n\r\n");
+    egal("une simple lecture n'est pas concernee par le controle d'origine", 200, r.code);
+
+    // Arret et redemarrage sont en plus reserves a l'ordinateur du bridge.
+    r = get(port, "/api/local");
+    egal("une requete venue de la boucle locale est bien reconnue comme locale "
+        + "(arret et redemarrage autorises depuis la regie)", "true", r.corps);
+  }
+
+  // ------------------------------------------------------------------
+  /**
+   * Refus d'un corps de requete trop volumineux.
+   *
+   * Deux garde-fous distincts : le refus immediat quand la taille annoncee
+   * depasse la limite (inutile de faire transiter des mega-octets pour les
+   * rejeter ensuite), et le controle PENDANT la lecture, qui empeche un client
+   * qui ment sur sa taille de faire grossir la memoire du bridge sans limite.
+   */
+  private static void corpsTropVolumineux(int port) throws Exception {
+    groupe("Refus d'un corps de requete trop volumineux");
+
+    Reponse r = postAvec(port, "/api/formulaire", "action=blackout&nom=Salle A", "");
+    egal("un formulaire normal est accepte", 200, r.code);
+    egal("ses champs sont decodes", "2|blackout|Salle A", r.corps);
+
+    r = postAvec(port, "/api/formulaire", "nom=" + repeter('x', 65536 - 4), "");
+    egal("un corps pile a la limite de 64 Ko passe encore", 200, r.code);
+
+    r = postAvec(port, "/api/formulaire", "nom=" + repeter('x', 65536 - 3), "");
+    egal("un octet de plus et le corps est refuse", 413, r.code);
+    egal("le refus est bien l'exception dediee, traduite en 413 par le serveur",
+        "RequestTooLargeException|true", r.corps);
+
+    r = postAvec(port, "/api/formulaire", "nom=" + repeter('x', 200000), "");
+    egal("un corps de 200 Ko est refuse", 413, r.code);
+
+    // Controle PENDANT la lecture : un flux qui ne dit pas sa taille ne doit
+    // pas pouvoir etre entierement charge en memoire avant d'etre rejete.
+    egal("un flux sous la limite est lu en entier", 1000,
+        ((byte[]) mReadAll.invoke(null, new ByteArrayInputStream(new byte[1000]), 65536)).length);
+    egal("un flux exactement a la limite passe", 65536,
+        ((byte[]) mReadAll.invoke(null, new ByteArrayInputStream(new byte[65536]), 65536)).length);
+
+    Throwable refus = null;
+    try {
+      mReadAll.invoke(null, new ByteArrayInputStream(new byte[65537]), 65536);
+    } catch (InvocationTargetException e) {
+      refus = e.getCause();
+    }
+    check("un flux plus gros que la limite est refuse", refus instanceof IOException);
+    check("... par l'exception dediee que le serveur traduit en 413",
+        refus != null && "RequestTooLargeException".equals(refus.getClass().getSimpleName()));
+
+    // Un client qui ment sur la taille de son corps (ou qui n'en annonce
+    // aucune) ne doit pas pouvoir faire grossir la memoire du bridge : la
+    // lecture s'arrete DES le depassement, elle ne rejette pas apres coup.
+    final long[] lus = { 0 };
+    final long fleuve = 4L * 1024 * 1024;
+    InputStream tresGros = new InputStream() {
+      public int read() {
+        if (lus[0] >= fleuve) {
+          return -1;
+        }
+        lus[0]++;
+        return 0;
+      }
+
+      public int read(byte[] b, int off, int len) {
+        if (lus[0] >= fleuve) {
+          return -1;
+        }
+        lus[0] += len;
+        return len;
+      }
+
+      public void close() {
+      }
+    };
+    Throwable coupe = null;
+    try {
+      mReadAll.invoke(null, tresGros, 65536);
+    } catch (InvocationTargetException e) {
+      coupe = e.getCause();
+    }
+    check("un corps de 4 Mo qui n'annonce pas sa taille est coupe", coupe instanceof IOException);
+    check("... des le depassement, sans avoir ete charge en memoire ("
+        + lus[0] + " octets lus au lieu de " + fleuve + ")",
+        lus[0] > 0 && lus[0] <= 65536 + 3 * 8192);
+  }
+
+  // ------------------------------------------------------------------
+  /**
+   * Lecture des valeurs envoyees par l'interface.
+   *
+   * Double.parseDouble accepte « NaN », « Infinity » et « -Infinity ». Un champ
+   * ainsi rempli traversait tous les bornages (Math.min/max propagent NaN) et
+   * finissait dans la configuration ; /api/config renvoyait alors un JSON
+   * contenant le litteral NaN, que JSON.parse refuse. L'interface restait figee
+   * au chargement alors que le bridge, lui, fonctionnait parfaitement.
+   */
+  private static void valeursDuFormulaire() throws Exception {
+    groupe("Lecture des valeurs envoyees par l'interface");
+
+    egal("une valeur normale est lue", 0.42, reel("0.42", 5.0));
+    egal("les espaces autour de la valeur sont toleres", 0.42, reel("  0.42  ", 5.0));
+    egal("« NaN » est refuse (il figerait l'interface au chargement)", 5.0, reel("NaN", 5.0));
+    egal("« Infinity » est refuse", 5.0, reel("Infinity", 5.0));
+    egal("« -Infinity » est refuse", 5.0, reel("-Infinity", 5.0));
+    egal("un texte quelconque est refuse", 5.0, reel("abc", 5.0));
+    egal("un champ vide est refuse", 5.0, reel("", 5.0));
+    egal("un champ absent est refuse", 5.0, reel(null, 5.0));
+    egal("une valeur negative est bien lue (le bornage est fait plus loin)",
+        -3.0, reel("-3", 5.0));
+
+    egal("entier : valeur normale", 42, mParseInt.invoke(null, " 42 ", Integer.valueOf(7)));
+    egal("entier : texte refuse", 7, mParseInt.invoke(null, "abc", Integer.valueOf(7)));
+    egal("entier : champ absent refuse", 7,
+        mParseInt.invoke(null, new Object[] { null, Integer.valueOf(7) }));
+
+    // Last-Event-ID : le navigateur renvoie ce numero apres une coupure pour ne
+    // recevoir que la suite du journal. Absent, on repart de tout l'historique.
+    egal("Last-Event-ID absent => on repart de zero (tout l'historique)", 0L,
+        mParseLong.invoke(null, new Object[] { null, Long.valueOf(0) }));
+    egal("Last-Event-ID valide => reprise a ce numero", 1234L,
+        mParseLong.invoke(null, "1234", Long.valueOf(0)));
+    egal("Last-Event-ID fantaisiste => on repart de zero", 0L,
+        mParseLong.invoke(null, "abc", Long.valueOf(0)));
+  }
+
+  private static Object reel(String saisie, double defaut) throws Exception {
+    return mParseDouble.invoke(null, new Object[] { saisie, Double.valueOf(defaut) });
+  }
+
+  private static String repeter(char c, int n) {
+    StringBuilder sb = new StringBuilder(n);
+    for (int i = 0; i < n; i++) {
+      sb.append(c);
+    }
+    return sb.toString();
+  }
+
+  // ------------------------------------------------------------------
   // Petit client HTTP de test (on ne peut pas utiliser HttpURLConnection :
   // il masquerait justement les details qu'on veut verifier).
   // ------------------------------------------------------------------
@@ -288,8 +562,14 @@ public final class HttpTests {
   }
 
   private static Reponse post(int port, String chemin, String corps) throws IOException {
+    return postAvec(port, chemin, corps, "");
+  }
+
+  /** POST avec des en-tetes supplementaires (chacun termine par CRLF). */
+  private static Reponse postAvec(int port, String chemin, String corps, String entetesSup)
+      throws IOException {
     byte[] data = corps.getBytes(StandardCharsets.UTF_8);
-    return brut(port, "POST " + chemin + " HTTP/1.1\r\nHost: x\r\n"
+    return brut(port, "POST " + chemin + " HTTP/1.1\r\nHost: x\r\n" + entetesSup
         + "Content-Type: application/x-www-form-urlencoded\r\n"
         + "Content-Length: " + data.length + "\r\nConnection: close\r\n\r\n" + corps);
   }

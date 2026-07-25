@@ -26,13 +26,15 @@ public final class Tray {
   }
 
   /** Installe l'icone. Retourne false si l'environnement ne le permet pas. */
-  public static boolean install(final LegacyCore core, final Blackout blackoutState,
-      final String uiUrl) {
+  // Le parametre LegacyCore a disparu : depuis que le blackout est un etat
+  // verrouille porte par Blackout, plus aucune ligne de cette classe ne touchait
+  // au coeur legacy. (PixelPusherBridge)
+  public static boolean install(final Blackout blackoutState, final String uiUrl) {
     try {
       if (java.awt.GraphicsEnvironment.isHeadless() || !SystemTray.isSupported()) {
         return false;
       }
-      final TrayIcon icon = new TrayIcon(makeIcon(true), "PixelPusher Bridge — en marche");
+      final TrayIcon icon = new TrayIcon(makeIcon(), "PixelPusher Bridge — en marche");
       icon.setImageAutoSize(true);
 
       PopupMenu menu = new PopupMenu();
@@ -108,8 +110,17 @@ public final class Tray {
     }
   }
 
-  /** Petite icone : trois barres LED + pastille d'etat. */
-  private static BufferedImage makeIcon(boolean running) {
+  /**
+   * Petite icone : trois barres LED + pastille verte.
+   *
+   * Le parametre « running » a ete supprime : il n'etait jamais appele qu'avec
+   * true, l'icone n'est construite qu'une fois au demarrage et n'est jamais
+   * remplacee ensuite. La pastille rouge etait donc inatteignable et laissait
+   * croire a un indicateur d'etat qui n'existe pas. Pour en faire un vrai, il
+   * faudrait garder la reference du TrayIcon et appeler setImage() a chaque
+   * changement d'etat.
+   */
+  private static BufferedImage makeIcon() {
     int s = 16;
     BufferedImage img = new BufferedImage(s, s, BufferedImage.TYPE_INT_ARGB);
     Graphics2D g = img.createGraphics();
@@ -121,8 +132,8 @@ public final class Tray {
     g.fillRoundRect(1, 7, 10, 3, 2, 2);
     g.setColor(new Color(0x22, 0xd3, 0xee));
     g.fillRoundRect(1, 12, 10, 3, 2, 2);
-    // pastille d'etat
-    g.setColor(running ? new Color(0x2e, 0xcc, 0x71) : new Color(0xe7, 0x4c, 0x3c));
+    // pastille verte : le bridge tourne
+    g.setColor(new Color(0x2e, 0xcc, 0x71));
     g.fillOval(9, 8, 7, 7);
     g.setColor(new Color(255, 255, 255, 180));
     g.drawOval(9, 8, 7, 7);

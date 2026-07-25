@@ -188,12 +188,20 @@ public class Main {
     Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
       public void run() {
         LogBus.info("Arrêt de PixelPusher Bridge.");
+        // Dernier geste : vider la file du journal et fermer bridge.log. LogBus
+        // installe bien son propre hook, mais la JVM execute tous les hooks EN
+        // PARALLELE : rien ne garantissait qu'il passe apres celui-ci, et le
+        // message ci-dessus (comme les derniers messages d'arret) pouvait
+        // disparaitre avec la JVM sans jamais atteindre le disque - exactement
+        // ceux qu'on cherche a relire apres un incident en spectacle.
+        // shutdown() est idempotent : le double appel est sans consequence.
+        LogBus.shutdown();
       }
     }, "shutdown-log"));
 
     // 5. icone de barre systeme (point vert + menu clic droit)
     if (web.getBoundPort() > 0) {
-      Tray.install(core, web.getBlackout(), "http://localhost:" + web.getBoundPort() + "/");
+      Tray.install(web.getBlackout(), "http://localhost:" + web.getBoundPort() + "/");
     }
 
     if (web.getBoundPort() > 0 && cfg.isOpenBrowser() && !noBrowser) {

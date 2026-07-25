@@ -125,9 +125,14 @@ public class WebServer {
    * ces ports acceptent les connexions sans jamais repondre.
    */
   private void bind(int base) throws IOException {
+    // La plage balayee est definie une seule fois dans AppConfig : elle DOIT
+    // rester identique a celle de Main.detectRunningInstance(), sans quoi le
+    // verrou d'instance unique casse en silence (voir AppConfig.PORT_SCAN_RANGE).
+    // (PixelPusherBridge)
+    final int last = base + AppConfig.PORT_SCAN_RANGE;
     IOException lastError = null;
     if (jdkServerUsable()) {
-      for (int p = base; p <= base + 10; p++) {
+      for (int p = base; p <= last; p++) {
         try {
           server = HttpServer.create(new InetSocketAddress(p), 0);
           boundPort = p;
@@ -148,7 +153,7 @@ public class WebServer {
       LogBus.warn("Cause quasi certaine : un pare-feu ou un antivirus interdit les connexions "
           + "en boucle locale. Bascule sur le serveur de secours, sans perte de fonctionnalite.");
     }
-    for (int p = base; p <= base + 10; p++) {
+    for (int p = base; p <= last; p++) {
       try {
         miniServer = MiniHttpServer.create(new InetSocketAddress(p), 0);
         boundPort = miniServer.getPort();
@@ -163,14 +168,13 @@ public class WebServer {
     try {
       miniServer = MiniHttpServer.create(new InetSocketAddress(0), 0);
       boundPort = miniServer.getPort();
-      LogBus.warn("Ports " + base + " a " + (base + 10) + " tous indisponibles : "
+      LogBus.warn("Ports " + base + " a " + last + " tous indisponibles : "
           + "l'interface demarre sur le port libre " + boundPort + ".");
       return;
     } catch (IOException e) {
       lastError = e;
     }
-    throw new IOException("Aucun port web disponible entre " + base + " et " + (base + 10),
-        lastError);
+    throw new IOException("Aucun port web disponible entre " + base + " et " + last, lastError);
   }
 
   /**
@@ -223,7 +227,7 @@ public class WebServer {
     return miniServer != null;
   }
 
-  /** Demarre le serveur ; essaie le port configure puis les 10 suivants. */
+  /** Demarre le serveur ; essaie le port configure puis les AppConfig.PORT_SCAN_RANGE suivants. */
   public void start() throws IOException {
     // Sans cette propriete, le serveur du JDK n'a AUCUN minuteur (valeur -1 par
     // defaut) : une connexion qui ouvre le socket puis n'envoie jamais la fin de
@@ -449,7 +453,7 @@ public class WebServer {
     }
     if (text == null) {
       // URL mobile directe (avec port : le QR n'est pas tape a la main)
-      String ip = firstLanIp();
+      String ip = Net.firstSiteLocalIpv4();
       if (ip == null) {
         sendText(ex, 404, "text/plain", "Aucune adresse LAN detectee");
         return;
@@ -476,27 +480,9 @@ public class WebServer {
     os.close();
   }
 
-  private static String firstLanIp() {
-    try {
-      java.util.Enumeration<java.net.NetworkInterface> ifs =
-          java.net.NetworkInterface.getNetworkInterfaces();
-      while (ifs.hasMoreElements()) {
-        java.net.NetworkInterface ni = ifs.nextElement();
-        if (!ni.isUp() || ni.isLoopback() || ni.isVirtual()) {
-          continue;
-        }
-        java.util.Enumeration<java.net.InetAddress> addrs = ni.getInetAddresses();
-        while (addrs.hasMoreElements()) {
-          java.net.InetAddress a = addrs.nextElement();
-          if (a instanceof java.net.Inet4Address && a.isSiteLocalAddress()) {
-            return a.getHostAddress();
-          }
-        }
-      }
-    } catch (Exception ignored) {
-    }
-    return null;
-  }
+  // firstLanIp() supprime : l'enumeration des adresses IPv4 site-local vit
+  // desormais dans Net, seule copie du filtrage (elle etait dupliquee mot pour
+  // mot ici et dans StatusService.lanUrls). (PixelPusherBridge)
 
   // ---------- handlers ----------
 
@@ -657,8 +643,16 @@ public class WebServer {
     String action = f.get("action");
     String name = f.get("name");
     if ("save".equals(action)) {
+      // Le nom retenu n'est pas toujours celui qui a ete tape : Presets.sanitize
+      // retire les caracteres interdits et coupe a 40 signes. Sans le renvoyer,
+      // l'interface affichait le nom saisi tandis que le disque en portait un
+      // autre, et le preset semblait introuvable au rechargement. On applique
+      // ici la meme regle que l'enregistreur de sequences, qui renvoie deja le
+      // nom finalement utilise. (PixelPusherBridge)
+      String retenu = Presets.sanitize(name);
       if (Presets.save(name, cfg)) {
-        sendJson(ex, 200, "{\"ok\":true,\"presets\":" + Presets.listJson() + "}");
+        sendJson(ex, 200, "{\"ok\":true,\"name\":\"" + Json.esc(retenu)
+            + "\",\"presets\":" + Presets.listJson() + "}");
       } else {
         sendJson(ex, 400, "{\"ok\":false,\"error\":\"Nom de preset invalide\"}");
       }
@@ -666,6 +660,8 @@ public class WebServer {
       int oldPort = cfg.getWebPort();
       boolean oldSacn = cfg.isSacnEnabled();
       if (Presets.load(name, cfg)) {
+        // Presets.load ecrit la configuration : l'interface doit la relire.
+        status.bumpConfigRev();
         applyLiveSettings();
         boolean restartRequired = cfg.getWebPort() != oldPort
             || (cfg.isSacnEnabled() && !oldSacn);
@@ -865,6 +861,12 @@ public class WebServer {
     }
 
     cfg.save();
+    // Numero de revision : /api/status le publie, l'interface ne recharge
+    // /api/config que lorsqu'il change (avant, elle l'interrogeait toutes les
+    // 5 s pour rien). Doit etre incremente apres CHAQUE ecriture de la
+    // configuration, sinon un onglet reste sur des valeurs perimees.
+    // (PixelPusherBridge)
+    status.bumpConfigRev();
     LogBus.info("Configuration enregistree" + (restartRequired ? " (redemarrage requis pour certains changements)" : ""));
     sendJson(ex, 200, "{\"ok\":true,\"restartRequired\":" + restartRequired + "}");
   }
@@ -1298,9 +1300,24 @@ public class WebServer {
     }
   }
 
+  /**
+   * Lecture d'un reel envoye par le formulaire.
+   *
+   * Double.parseDouble accepte "NaN", "Infinity" et "-Infinity" : un champ
+   * ainsi rempli traversait tous les bornages (Math.min/max propagent NaN) et
+   * finissait dans la configuration, d'ou /api/config renvoyait un JSON
+   * contenant le litteral NaN - que JSON.parse refuse. L'interface restait
+   * alors figee au chargement alors que le bridge, lui, fonctionnait. Une
+   * valeur non finie est traitee comme une saisie illisible : valeur par
+   * defaut. Meme regle que AppConfig.getDouble. (PixelPusherBridge)
+   */
   private static double parseDouble(String s, double def) {
     try {
-      return Double.parseDouble(s.trim());
+      double v = Double.parseDouble(s.trim());
+      if (Double.isNaN(v) || Double.isInfinite(v)) {
+        return def;
+      }
+      return v;
     } catch (Exception e) {
       return def;
     }

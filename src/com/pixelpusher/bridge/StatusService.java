@@ -34,6 +34,26 @@ public class StatusService {
   }
   private final long startTime = System.currentTimeMillis();
 
+  /**
+   * Numero de revision de la configuration.
+   *
+   * Publie dans /api/status (deja interroge une fois par seconde) : l'interface
+   * ne recharge /api/config que lorsque ce numero change, au lieu de le
+   * demander toutes les 5 s. Une requete de moins en permanence, et surtout un
+   * rafraichissement immediat quand un AUTRE poste ou le chargement d'un preset
+   * a modifie la configuration - avant, l'onglet gardait jusqu'a 5 s des
+   * valeurs perimees, et l'operateur pouvait renvoyer un reglage qu'il croyait
+   * courant. Incremente par WebServer apres chaque ecriture (cfg.save()).
+   * (PixelPusherBridge)
+   */
+  private final java.util.concurrent.atomic.AtomicInteger configRev =
+      new java.util.concurrent.atomic.AtomicInteger();
+
+  /** A appeler apres toute sauvegarde de la configuration. */
+  public void bumpConfigRev() {
+    configRev.incrementAndGet();
+  }
+
   // cache des adresses LAN (rafraichi toutes les 30 s)
   private volatile String lanUrlsJson = "[]";
   private volatile long lanUrlsTs = 0;
@@ -50,6 +70,13 @@ public class StatusService {
     this.webPort = port;
   }
 
+  /**
+   * URLs mobiles a afficher (une par adresse LAN). L'enumeration des cartes
+   * reseau et le filtrage des adresses vivent dans Net : cette boucle etait
+   * dupliquee mot pour mot dans WebServer.firstLanIp, avec le risque que le QR
+   * code et le lien affiche finissent par designer deux cartes differentes.
+   * (PixelPusherBridge)
+   */
   private String lanUrls() {
     long now = System.currentTimeMillis();
     if (now - lanUrlsTs < 30000) {
@@ -59,34 +86,19 @@ public class StatusService {
     StringBuilder sb = new StringBuilder(96);
     sb.append('[');
     boolean first = true;
-    try {
-      java.util.Enumeration<java.net.NetworkInterface> ifs =
-          java.net.NetworkInterface.getNetworkInterfaces();
-      while (ifs.hasMoreElements()) {
-        java.net.NetworkInterface ni = ifs.nextElement();
-        if (!ni.isUp() || ni.isLoopback() || ni.isVirtual()) {
-          continue;
-        }
-        java.util.Enumeration<java.net.InetAddress> addrs = ni.getInetAddresses();
-        while (addrs.hasMoreElements()) {
-          java.net.InetAddress a = addrs.nextElement();
-          if (a instanceof java.net.Inet4Address && a.isSiteLocalAddress()) {
-            if (!first) {
-              sb.append(',');
-            }
-            first = false;
-            if (port80) {
-              // URL courte : le mini-serveur port 80 redirige vers le vrai port
-              sb.append("\"http://").append(a.getHostAddress()).append("/m\"");
-            } else {
-              sb.append("\"http://").append(a.getHostAddress())
-                .append(':').append(webPort > 0 ? webPort : AppConfig.DEF_WEB_PORT)
-                .append("/m\"");
-            }
-          }
-        }
+    for (String ip : Net.siteLocalIpv4()) {
+      if (!first) {
+        sb.append(',');
       }
-    } catch (Exception ignored) {
+      first = false;
+      if (port80) {
+        // URL courte : le mini-serveur port 80 redirige vers le vrai port
+        sb.append("\"http://").append(Json.esc(ip)).append("/m\"");
+      } else {
+        sb.append("\"http://").append(Json.esc(ip))
+          .append(':').append(webPort > 0 ? webPort : AppConfig.DEF_WEB_PORT)
+          .append("/m\"");
+      }
     }
     sb.append(']');
     lanUrlsJson = sb.toString();
@@ -134,6 +146,7 @@ public class StatusService {
     StringBuilder sb = new StringBuilder(2048);
     sb.append('{');
     sb.append("\"version\":\"").append(AppConfig.VERSION).append("\",");
+    sb.append("\"configRev\":").append(configRev.get()).append(',');
     sb.append("\"uptimeSec\":").append((now - startTime) / 1000).append(',');
     sb.append("\"artnetPps\":").append(fmt(artnetPps)).append(',');
     sb.append("\"sacnPps\":").append(fmt(sacnPps)).append(',');
@@ -215,6 +228,14 @@ public class StatusService {
           .append("\"strips\":").append(p.getNumberOfStrips()).append(',')
           .append("\"pixelsPerStrip\":").append(p.getPixelsPerStrip()).append(',')
           .append("\"artnetUniverse\":").append(p.getArtnetUniverse()).append(',')
+          // Dernier univers reellement occupe par ce pusher, pose par
+          // ArtNetMapping au moment du mappage. C'est la seule valeur exacte :
+          // l'interface le recalculait a partir du nombre de lignes et de
+          // pixels, sans tenir compte du mode packing ni des rubans RGBOW (5
+          // canaux par pixel), et annoncait donc un nombre d'univers faux des
+          // qu'on sortait du cas le plus simple. 0 = pusher non mappe.
+          // (PixelPusherBridge)
+          .append("\"lastUniverse\":").append(p.getLastUniverse()).append(',')
           .append("\"artnetChannel\":").append(p.getArtnetChannel()).append(',')
           .append("\"group\":").append(p.getGroupOrdinal()).append(',')
           .append("\"controller\":").append(p.getControllerOrdinal()).append(',')

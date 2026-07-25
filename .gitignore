@@ -18,6 +18,9 @@ reference/
 build/tests/
 test_sources.txt
 
+# Artefacts produits a l'execution des outils de test
+tools/pusher_stats.json
+
 # Système
 .DS_Store
 Thumbs.db

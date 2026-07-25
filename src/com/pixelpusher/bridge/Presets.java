@@ -33,52 +33,25 @@ public final class Presets {
   }
 
   /**
-   * Regle de nommage unique des fichiers crees a partir d'une saisie
-   * utilisateur. C'est la SEULE barriere entre un nom recu par HTTP et un
-   * chemin sur le disque : elle ne doit exister qu'a un seul endroit.
-   * Recorder.sanitize() delegue ici pour cette raison (le code etait duplique
-   * mot pour mot dans les deux classes, une divergence future aurait fait
-   * diverger deux regles de securite). (PixelPusherBridge)
+   * Nettoyage du nom fourni par le client HTTP.
+   *
+   * La regle elle-meme vit dans Names, son emplacement naturel : c'est la
+   * SEULE barriere entre un nom recu par HTTP et un chemin sur le disque, elle
+   * ne doit exister qu'a un seul endroit. Presets et Recorder delegent tous
+   * les deux ici. (PixelPusherBridge)
    */
   static String sanitize(String name) {
-    if (name == null) {
-      return "";
-    }
-    String s = name.replaceAll("[^\\p{L}\\p{N} _()-]", "").trim();
-    if (s.length() > 40) {
-      s = s.substring(0, 40).trim();
-    }
-    return Names.isReservedOnWindows(s) ? "" : s;
+    return Names.sanitize(name);
   }
 
   /**
    * Construit le fichier &lt;dir&gt;/&lt;base&gt;&lt;extension&gt; et verifie
    * qu'il reste bien dans le dossier autorise, ou null sinon.
-   *
-   * Defense en profondeur : sanitize() supprime deja tout ce qui permettrait
-   * une traversee de repertoire, mais cette verification reste valable si le
-   * jeu de caracteres autorise evolue un jour (ajouter le point suffirait a
-   * laisser passer ".."). Deux lignes, aucun cout mesurable : ces appels ont
-   * lieu sur action explicite de l'operateur, jamais sur le chemin temps reel.
+   * Implementation dans Names, aux cotes de la regle de nommage.
    * (PixelPusherBridge)
    */
   static File safeFile(File dir, String base, String extension) {
-    if (base == null || base.isEmpty()) {
-      return null;
-    }
-    File f = new File(dir, base + extension);
-    try {
-      String racine = dir.getCanonicalPath();
-      if (!racine.endsWith(File.separator)) {
-        racine = racine + File.separator;
-      }
-      if (!f.getCanonicalPath().startsWith(racine)) {
-        return null;
-      }
-      return f;
-    } catch (IOException e) {
-      return null;
-    }
+    return Names.safeFile(dir, base, extension);
   }
 
   public static List<String> list() {
@@ -230,17 +203,10 @@ public final class Presets {
   }
 
   public static String listJson() {
-    StringBuilder sb = new StringBuilder(128);
-    sb.append('[');
-    boolean first = true;
+    Json.Writer w = Json.writer(128).beginArray();
     for (String n : list()) {
-      if (!first) {
-        sb.append(',');
-      }
-      first = false;
-      sb.append('"').append(Json.esc(n)).append('"');
+      w.str(n);
     }
-    sb.append(']');
-    return sb.toString();
+    return w.endArray().done();
   }
 }

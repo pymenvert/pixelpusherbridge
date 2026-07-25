@@ -10,8 +10,10 @@ lumière (MadMapper, grandMA, Resolume, console…) et le transmet à des contr�
 **PixelPusher** qui pilotent des rubans LED. Pilotage par **interface web embarquée**.
 
 Auteur : Pierre Yves Mansour — Collectif WSK. Licence MIT (voir `LICENSE`).
-Version actuelle : **1.5.0** (voir `CHANGELOG.md` pour l'historique complet).
+Version actuelle : **1.6.0** (voir `CHANGELOG.md` pour l'historique complet).
 L'utilisateur parle **français** — l'interface, les logs et les commentaires sont en français.
+Usage réel : **spectacle vivant**. Une panne se voit devant public : la robustesse prime
+toujours sur l'élégance d'une refonte.
 
 ## Règle d'or : ne pas toucher au cœur legacy
 
@@ -61,8 +63,12 @@ src/com/pixelpusher/bridge/
   Tray.java           Icône barre système (AWT SystemTray) + menu clic droit
   WebServer.java      Serveur HTTP embarqué, tous les endpoints
   MiniHttpServer.java Serveur HTTP **de secours** en sockets bloquantes (voir DEVNOTES §9)
-  Names.java          Noms de fichiers interdits par Windows (CON, LPT1…)
-  Json.java           Échappement JSON
+  Names.java          Règle de nommage unique des fichiers : `sanitize`, `safeFile`,
+                      noms interdits par Windows (CON, LPT1…). Presets et Recorder délèguent ici.
+  Net.java            Énumération des adresses IPv4 site-local (QR code, URL téléphone).
+                      Seule implémentation : ne pas réécrire une boucle `NetworkInterface` ailleurs.
+  Json.java           Échappement JSON + `Json.Writer`, mini-écrivain qui pose les virgules et
+                      échappe **toute** chaîne (clé comprise). Tout nouveau JSON passe par lui.
 
 tests/                Banc de tests (hors du jar) — `RUN-TESTS.bat`
 web/index.html        Interface complète (un seul fichier, vanilla JS, aucun framework)
@@ -70,7 +76,14 @@ web/mobile.html       Interface téléphone simplifiée (/m)
 packaging/            Launchers macOS/Windows, Info.plist, icône, script de signature
 reference/            Sources du projet d'origine + pixel.rc d'exemple (lecture seule, référence)
 tools/                Scripts de test (faux PixelPusher, émetteur Art-Net, validateur QR,
-                      vérificateur des interfaces web)
+                      vérificateur des interfaces web, test de bout en bout `smoke_test.py`)
+BUILD.bat             Compilation sous Windows
+build.sh              Compilation sous macOS / Linux (même cible, même contrôle du bytecode)
+RUN-TESTS.bat         Banc de tests
+VERIFIER-TOUT.bat     Compilation + tests + bout en bout : la commande à faire passer
+                      avant un spectacle ou une publication
+LISEZ-MOI.txt         Pense-bête à livrer à côté des binaires (version, licence, aide)
+DEMARRER-ICI.md       Point d'entrée du dossier pour une reprise de développement
 AUDIT.md              Rapport d'audit complet (90 défauts confirmés) + plan d'action
 audit-findings.json   Les mêmes, en données exploitables
 ```
@@ -116,10 +129,14 @@ Ports utilisés : **6454** Art-Net · **5568** sACN · **7331** discovery PixelP
 
 ```
 BUILD.bat          (Windows, nécessite un JDK)
+./build.sh         (macOS / Linux, nécessite un JDK)
 ```
-Le script arrête d'abord les instances en cours (sinon le jar est corrompu silencieusement),
-compile en Java 11, embarque `web/*.html`, génère `dist/PixelPusherBridge.jar` et met à jour
-le dossier Windows + l'app macOS.
+Les deux scripts font la même chose : compilation en Java 11 (`--release 11 -encoding UTF-8`,
+sources hors `*Test.java`), intégration de `web/*.html` et de `LICENSE` dans `META-INF`,
+`jar cfe`, puis **relecture de la version majeure du bytecode produit** (55 = Java 11) —
+sans ce contrôle, un jar illisible sur la machine de spectacle partirait en silence.
+`BUILD.bat` arrête en plus les instances en cours (sinon le jar est corrompu silencieusement)
+et met à jour le dossier Windows + l'app macOS.
 
 Zip macOS complet : `packaging/make_mac_app.sh` — **à lancer depuis macOS ou Linux**, jamais
 depuis Windows (le zip perdrait le bit exécutable du launcher, l'app ne démarrerait plus).
@@ -149,6 +166,12 @@ Voir **`DEVNOTES.md`** pour le détail complet. Les principaux :
 5. **OpenCV QRCodeDetector est un juge peu fiable** pour valider des QR — utiliser le décodeur indépendant de `tools/validate_qr.py`.
 6. **Univers Art-Net 0 côté source = univers 1 côté bridge** (source de confusion récurrente pour les utilisateurs).
 7. `pixel.rc` du pusher : `artnet_universe` et `artnet_channel` à 0 = aucun mapping, rien ne s'allume.
+8. **La plage de ports web est un invariant partagé** : `WebServer.bind()` et
+   `Main.detectRunningInstance()` doivent balayer exactement `port → port + AppConfig.PORT_SCAN_RANGE`.
+   Élargir une seule des deux boucles casse le verrou d'instance unique **en silence**.
+9. **`MiniHttpServer` ferme la connexion dès que le handler rend la main** (contrairement au
+   serveur du JDK, où l'échange survit au handler). Une réponse en flux continu doit donc
+   tenir la ligne sur le serveur de secours, et surtout **pas** sur celui du JDK.
 
 ## Priorités de l'utilisateur (dans l'ordre)
 
@@ -159,7 +182,32 @@ Voir **`DEVNOTES.md`** pour le détail complet. Les principaux :
 
 ## Conventions
 
+### Règle d'écriture (accents) — tranchée, ne plus hésiter
+
+Un seul critère : **qui lit le texte ?**
+
+| Ce qu'on écrit | Accents | Exemple |
+|---|---|---|
+| Commentaires et Javadoc dans les `.java` | **NON** | `// borne du tampon : evite une trame tronquee` |
+| Noms de classes, méthodes, variables, constantes, clés de config, clés JSON | **NON** | `purgeUniversSilencieux()`, `artnetThreadAlive` |
+| Chaînes destinées à l'utilisateur (logs, messages d'erreur, réponses JSON affichées, libellés du menu système) | **OUI** | `LogBus.warn("Commande refusée : origine inconnue.")` |
+| Fichiers `web/*.html` (texte visible, `aria-label`, `title`) | **OUI** | « Écoute Art-Net (port 6454) » |
+| Documentation (`*.md`, `LISEZ-MOI.txt`), scripts `.bat` / `.sh` côté messages | **OUI** dans les `.md` · **NON** dans les `.bat`/`.sh` (encodage console peu fiable) | |
+
+Justification : la compilation se fait en `-encoding UTF-8`, un accent dans un commentaire
+serait donc légal — mais les `.java` de ce projet transitent par des outils et des consoles
+Windows dont l'encodage varie, et un commentaire mal décodé passe inaperçu jusqu'au jour où
+il casse une ligne de code. À l'inverse, un message utilisateur sans accent se voit
+immédiatement et fait négligé devant un client. Les fichiers `.java` doivent être en
+**UTF-8 sans BOM** (un BOM casse la déclaration `package`).
+
+### Autres conventions
+
 - Interface, logs et messages utilisateur **en français**.
-- Code Java : commentaires en français, sans accents dans les fichiers `.java` (compilation `-encoding UTF-8` mais on reste prudent), style du projet (2 espaces, accolades K&R).
-- Chaque nouvelle version : incrémenter `AppConfig.VERSION`, `packaging/macos/Info.plist` (2 occurrences) et ajouter une entrée dans `CHANGELOG.md`.
+- Style Java du projet : 2 espaces, accolades K&R, cible **Java 11**, zéro dépendance externe.
+- Chaque nouvelle version : incrémenter `AppConfig.VERSION`, `packaging/macos/Info.plist`
+  (2 occurrences), `LISEZ-MOI.txt` et ajouter une entrée dans `CHANGELOG.md`.
+  `BUILD.bat` avertit si `AppConfig`, `Info.plist` et `CHANGELOG.md` divergent.
 - Toute modification de l'UI doit rester **responsive** (desktop + téléphone).
+- Avant de publier : `VERIFIER-TOUT.bat` doit finir en vert (compilation + 100 tests +
+  test de bout en bout réseau → LED).

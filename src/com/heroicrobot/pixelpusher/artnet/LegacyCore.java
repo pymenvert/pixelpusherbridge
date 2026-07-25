@@ -121,6 +121,25 @@ public class LegacyCore {
     if (obs == null) {
       return;
     }
+    // Pendant une lecture de sequence l'entree reseau est coupee : plus rien
+    // n'alimente universeLastSeen ni lastFrame, et le tableau de bord annonce
+    // « aucune donnee DMX » alors que les rubans sont bel et bien pilotes (le
+    // moniteur DMX restait fige sur la derniere trame reelle, avec un age qui
+    // vieillissait). On rafraichit donc ces tables ici exactement comme le fait
+    // ArtNetReceiver pour une trame reelle, meme borne, meme ordre d'ecriture
+    // (universeLastSeen puis lastFrame, dont depend la purge du watchdog).
+    // (PixelPusherBridge)
+    if (channels != null && offset >= 0 && length > 0 && offset + length <= channels.length) {
+      Integer uKey = Integer.valueOf(universe);
+      if (ArtNetReceiver.canTrack(ArtNetReceiver.universeLastSeen, uKey)) {
+        ArtNetReceiver.universeLastSeen.put(uKey, Long.valueOf(System.currentTimeMillis()));
+      }
+      if (ArtNetReceiver.canTrack(ArtNetReceiver.lastFrame, uKey)) {
+        byte[] frameCopy = new byte[length];
+        System.arraycopy(channels, offset, frameCopy, 0, length);
+        ArtNetReceiver.lastFrame.put(uKey, frameCopy);
+      }
+    }
     ArtNetMapping mapping = obs.mapping;
     try {
       for (int i = 0; i < length; i++) {

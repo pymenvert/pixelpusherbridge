@@ -1,0 +1,91 @@
+==============================================================================
+  PIXELPUSHER BRIDGE — version 1.6.0
+  Pont Art-Net / sACN vers contrôleurs PixelPusher
+==============================================================================
+
+  Auteur  : Pierre Yves Mansour — Collectif WSK
+  Licence : MIT (texte complet dans le fichier LICENSE, livré à côté)
+  Sources : https://github.com/pymenvert/pixelpusherbridge
+
+  Le cœur réseau est basé sur PixelPusher-artnet (Heroic Robotics /
+  robot-head), crédité dans le fichier LICENSE.
+
+
+À QUOI ÇA SERT
+------------------------------------------------------------------------------
+Le bridge reçoit l'Art-Net ou le sACN envoyé par ton logiciel lumière
+(MadMapper, grandMA, Resolume, une console…) et le transmet aux contrôleurs
+PixelPusher qui pilotent tes rubans LED. Tout se pilote depuis une interface
+web : configuration, tests, diagnostic, enregistrement de séquences.
+
+
+DÉMARRER
+------------------------------------------------------------------------------
+Windows   Double-clique « PixelPusher Bridge.bat ».
+          (« Arreter PixelPusher Bridge.bat » force l'arrêt si besoin.)
+
+macOS     Double-clique « PixelPusher Bridge.app ».
+          Au tout premier lancement : clic droit sur l'app → Ouvrir → Ouvrir
+          (l'app n'est pas signée par Apple, à confirmer une seule fois).
+
+En ligne de commande, sur n'importe quel système muni de Java 11 ou plus :
+          java -jar PixelPusherBridge.jar
+
+Java n'est pas installé ? L'app macOS propose de le télécharger toute seule.
+Sinon : https://adoptium.net
+
+
+L'INTERFACE
+------------------------------------------------------------------------------
+Ordinateur   http://localhost:7350
+Téléphone    l'adresse affichée sur le Tableau de bord, ou scanne le QR code
+             (bouton « Afficher le QR code ») — téléphone et ordinateur
+             doivent être sur le même réseau
+
+Si le port 7350 est déjà pris, le bridge en essaie dix autres : l'adresse
+exacte est écrite dans les logs, sur le Tableau de bord et dans le menu de
+l'icône de barre système.
+
+Fermer la fenêtre n'arrête PAS le bridge : il continue en arrière-plan.
+L'icône de barre système (clic droit) permet de le rouvrir, de faire un
+blackout, de le redémarrer ou de l'arrêter.
+
+
+macOS 15 (SEQUOIA) ET PLUS RÉCENT — À LIRE
+------------------------------------------------------------------------------
+Au premier lancement, le système demande l'autorisation « Réseau local » :
+il faut ACCEPTER. Sans elle, aucun PixelPusher n'est découvert, et le refus
+est totalement silencieux — aucune erreur, tout paraît normal.
+
+Pour la rétablir :
+  Réglages Système → Confidentialité et sécurité → Réseau local
+  → activer « PixelPusher Bridge » (ou « Java » / « Terminal » si tu l'as
+    lancé en ligne de commande).
+
+
+EN CAS DE PROBLÈME
+------------------------------------------------------------------------------
+1. Tableau de bord → bouton « Diagnostic complet ». Chaque problème détecté
+   arrive avec un conseil concret, et le rapport se télécharge en un clic —
+   c'est le fichier à joindre quand tu demandes de l'aide.
+2. Onglet Logs : messages en temps réel, filtres, téléchargement.
+3. Rappel classique : un univers Art-Net 0 côté source correspond à
+   l'univers 1 côté bridge.
+
+Tes données (configuration, presets, enregistrements, journal) sont dans :
+  Windows  C:\Users\<toi>\.pixelpusherbridge\
+  macOS    ~/.pixelpusherbridge/
+Elles survivent aux mises à jour. Le journal complet est bridge.log.
+
+
+AIDE ET DOCUMENTATION
+------------------------------------------------------------------------------
+Onglet « Guide » de l'interface  : prise en main pas à pas, du branchement au
+                                   mode spectacle.
+README.md                        : présentation et mode d'emploi complet.
+CHANGELOG.md                     : ce qui a changé dans chaque version.
+Signalement de bug / question    : https://github.com/pymenvert/pixelpusherbridge
+
+==============================================================================
+  © 2026 Pierre Yves Mansour — Collectif WSK · Licence MIT
+==============================================================================

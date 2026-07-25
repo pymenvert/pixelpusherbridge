@@ -46,6 +46,40 @@ sur banc de test. Le rapport intégral est dans [`AUDIT.md`](AUDIT.md).
 - Le lanceur Windows vérifiait la présence de Java, pas qu'il fonctionne : l'échec
   était totalement silencieux. Il teste maintenant réellement la version et
   journalise dans `~/.pixelpusherbridge/launcher.log`.
+- **Le watchdog éteignait tout en pleine séquence.** Pendant la lecture d'un
+  enregistrement, les pixels sont alimentés par le bridge lui-même : plus rien
+  n'arrive du réseau. Le watchdog y voyait une perte de signal et intercalait une
+  trame noire devant public. Il est désormais mis en veille pendant une lecture
+  comme pendant un scénario de test.
+- **Charger un preset effaçait des réglages.** Le preset remplaçait la
+  configuration au lieu de la compléter : tout réglage absent du fichier —
+  typiquement un réglage apparu dans une version plus récente — retombait
+  silencieusement à sa valeur d'usine. Un preset enregistré avant l'arrivée du
+  watchdog remettait ainsi le blackout automatique à zéro sans rien dire. Le
+  chargement fusionne maintenant, et les réglages conservés sont journalisés.
+- **Une coupure pendant l'enregistrement de la configuration pouvait tout
+  perdre.** Le fichier était écrit en place : une extinction brutale, un disque
+  plein ou une clé retirée au mauvais moment laissaient un fichier tronqué. La
+  sauvegarde passe désormais par un fichier temporaire remplacé d'un bloc, avec
+  une copie de secours de la dernière version saine — reprise automatique au
+  démarrage suivant si le fichier principal est illisible. Même traitement pour
+  les presets et pour les informations des séquences enregistrées.
+- **L'option de dépannage `--port` devenait définitive.** Le port forcé en ligne
+  de commande était écrit dans la configuration dès la première sauvegarde faite
+  depuis l'interface : tous les raccourcis de l'équipe pointaient ensuite vers le
+  mauvais port. Il ne vaut plus que pour le lancement en cours.
+- **Une page web quelconque ouverte sur le poste de régie pouvait commander le
+  bridge.** Les commandes venant d'une autre page sont maintenant refusées, avec
+  un message qui l'explique. Et **Arrêter / Redémarrer sont réservés à
+  l'ordinateur qui exécute le bridge** : ce sont les seules commandes dont on ne
+  revient pas à distance — une fois la fenêtre fermée, il faut retourner
+  physiquement à la machine. Le téléphone ne les propose pas.
+- **Une connexion laissée en suspens immobilisait l'interface.** Un client qui
+  ouvrait la connexion sans jamais terminer sa requête monopolisait un thread web
+  pour toujours ; quelques-uns suffisaient à rendre la page injoignable alors que
+  les LED tournaient. Délai de requête de 20 s, nombre de threads et de
+  connexions simultanées désormais bornés. Le flux de logs, lui, reste
+  volontairement sans limite de durée.
 
 ### Ajouté
 
@@ -60,6 +94,27 @@ sur banc de test. Le rapport intégral est dans [`AUDIT.md`](AUDIT.md).
   et les firmwares trop anciens remontent désormais dans le diagnostic.
 - **Banc de tests automatisés** (`RUN-TESTS.bat`) : 100 vérifications, zéro
   dépendance. Contrôle aussi la syntaxe des interfaces web et l'encodeur QR.
+- **Vérification complète en une commande** (`VERIFIER-TOUT.bat`) : compilation,
+  banc de tests, puis test de bout en bout réseau → mapping → trames → LED avec
+  un faux PixelPusher. Si elle finit en vert, la chaîne entière a été vérifiée
+  sans le moindre matériel. À lancer avant un spectacle ou une publication.
+- **Nouvelles vérifications du diagnostic**, chacune avec son conseil :
+  - port Art-Net ouvert mais **silencieux depuis plus de 30 s** — le plus souvent
+    un autre logiciel de la machine (MadMapper, Resolume, un autre node, une
+    instance du bridge restée ouverte) a pris le port 6454 en premier et capte
+    les paquets à la place du bridge ;
+  - **sACN silencieux depuis plus d'une minute** alors que les groupes multicast
+    sont rejoints — le thread vivant ne prouvait rien, il reste bloqué en
+    attente même quand plus une trame n'arrive (piège classique : un switch qui
+    filtre le multicast sans routeur pour l'entretenir) ;
+  - aucun PixelPusher détecté **sur macOS** : rappel de l'autorisation *Réglages
+    Système → Confidentialité et sécurité → Réseau local*, dont le refus est
+    totalement silencieux.
+- **`build.sh`** : compilation depuis macOS et Linux, équivalent de `BUILD.bat`
+  (même cible Java 11, même contrôle du bytecode produit).
+- **`LISEZ-MOI.txt`**, à joindre aux binaires distribués : version, auteur,
+  licence, adresse de l'interface, autorisation « Réseau local » de macOS, où
+  trouver de l'aide.
 
 ### Amélioré
 
@@ -70,6 +125,24 @@ sur banc de test. Le rapport intégral est dans [`AUDIT.md`](AUDIT.md).
   d'afficher des chiffres périmés comme s'ils étaient vivants.
 - Interface téléphone : zoom débloqué, cibles tactiles portées à 44 px.
 - Les messages de succès ne s'affichent plus quand le bridge a refusé la demande.
+- Tableau de bord : le voyant Art-Net distingue maintenant « port occupé, nouvel
+  essai automatique » de « le thread de réception s'est arrêté, il faut
+  redémarrer » — deux pannes très différentes qui affichaient le même message.
+  Chaque PixelPusher indique l'univers qu'il reçoit réellement, calculé par le
+  bridge et non plus deviné par la page (le calcul côté navigateur ignorait le
+  mode de compactage et les rubans RGBOW). Version et licence rappelées en pied
+  de page.
+- Interface téléphone : chaque échec réseau dit désormais ce qui n'a **pas** été
+  appliqué (« Bridge injoignable — luminosité non appliquée », « blackout NON
+  appliqué »…) au lieu d'échouer en silence. Le curseur de luminosité n'affiche
+  plus 100 % avant d'avoir lu la vraie valeur, et la page se répare toute seule
+  au retour du bridge, sans rechargement.
+- Une modification faite depuis un autre poste, ou un preset chargé depuis le
+  téléphone, est reflétée immédiatement par l'interface au lieu d'attendre
+  quelques secondes — plus de risque de renvoyer un réglage périmé.
+- Le moniteur DMX oublie les univers devenus silencieux depuis plus d'une minute,
+  au lieu de les accumuler pour la durée de la session ; et le tableau de bord
+  cesse d'annoncer « aucune donnée DMX » pendant la lecture d'une séquence.
 
 ## [1.5.0] — 2026-07-08
 

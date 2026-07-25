@@ -14,7 +14,17 @@ L'app vit comme un vrai logiciel : **icône de barre système** (point vert = br
 2. Glisse `PixelPusher Bridge.app` dans **Applications** (optionnel).
 3. Premier lancement : **clic droit sur l'app → Ouvrir → Ouvrir** (app non signée Apple, confirmation une seule fois).
 4. Si Java n'est pas installé, l'app propose de le télécharger automatiquement (~45 Mo, une seule fois).
-5. Le navigateur s'ouvre sur l'interface : `http://localhost:7350`.
+5. **macOS 15 (Sequoia) et plus récent** : au premier lancement, le système demande
+   l'autorisation **« Réseau local »**. Il faut **accepter** — c'est elle qui permet
+   de découvrir les PixelPushers.
+6. Le navigateur s'ouvre sur l'interface : `http://localhost:7350`.
+
+> **Aucun PixelPusher détecté sur un Mac ?** Vérifie l'autorisation *Réseau local* :
+> **Réglages Système → Confidentialité et sécurité → Réseau local**, et active
+> *PixelPusher Bridge* (ou *Java* / *Terminal* si tu l'as lancé en ligne de commande).
+> Un refus est **totalement silencieux** : aucune erreur, aucun message, simplement
+> plus aucun pusher trouvé alors que tout paraît normal. Le diagnostic intégré
+> rappelle ce point quand il ne voit aucun pusher.
 
 > Si macOS dit « l'app est endommagée » après un transfert par internet : Terminal →
 > `xattr -cr "/Applications/PixelPusher Bridge.app"` puis relance.
@@ -23,6 +33,21 @@ L'app vit comme un vrai logiciel : **icône de barre système** (point vert = br
 
 1. Ouvre `dist/PixelPusher Bridge (Windows)/`.
 2. Double-clique `PixelPusher Bridge.bat`. (`Arreter PixelPusher Bridge.bat` force l'arrêt en cas de besoin.)
+
+### Ce que contiennent les livrables
+
+Chaque livrable embarque le texte de la **licence MIT**, comme celle-ci l'exige
+(« in all copies ») :
+
+| Livrable | Contenu |
+|---|---|
+| `PixelPusherBridge.jar` | l'application complète + `META-INF/LICENSE` |
+| `PixelPusher Bridge (Windows)/` | le jar, les deux lanceurs `.bat`, `LICENSE` |
+| `PixelPusher Bridge (macOS).zip` | l'app (lanceur, `Info.plist`, icône, jar, `LICENSE`), le script de signature optionnel et `LICENSE` à la racine de l'archive |
+
+Ajoute `LISEZ-MOI.txt` (à la racine du projet) à côté des binaires que tu
+distribues : c'est le pense-bête destiné à la personne qui reçoit le logiciel —
+version, auteur, licence, adresse de l'interface, où trouver de l'aide.
 
 ## L'interface
 
@@ -73,13 +98,43 @@ RUN-TESTS.bat
 des messages du cœur réseau, échappement JSON, filtrage des noms de fichiers,
 serveur HTTP de secours de bout en bout, syntaxe des interfaces web, encodeur QR.
 
+### Tout vérifier avant un spectacle ou une publication
+
+```
+VERIFIER-TOUT.bat
+```
+
+Enchaîne les trois étapes et s'arrête à la première qui échoue :
+
+1. **compilation** (`BUILD.bat`) — jar régénéré, cible Java 11 contrôlée ;
+2. **banc de tests** (`RUN-TESTS.bat`) — 100 vérifications + interfaces web + QR ;
+3. **test de bout en bout** — un faux PixelPusher et une source Art-Net simulée
+   vérifient la chaîne complète réseau → mapping → trames → LED
+   (`tools/smoke_test.py`, nécessite Python 3 ; l'étape est ignorée avec un
+   message si Python est absent).
+
+Si cette commande finit en vert, l'ensemble a été vérifié sans le moindre
+matériel. **Ne publie pas une version qui ne passe pas cette commande.**
+
 ## Recompiler après une modification
 
 1. Arrête le bridge (bouton ⏹ ou le .bat d'arrêt) — il verrouille son jar.
-2. Double-clique `BUILD.bat` (nécessite un JDK).
-3. Le jar est régénéré dans `dist/` et copié dans le dossier Windows et l'app macOS.
+2. Compile :
+   - **Windows** : double-clique `BUILD.bat` ;
+   - **macOS / Linux** : `./build.sh`.
+   Les deux nécessitent un **JDK** (pas seulement un JRE) et produisent le même
+   jar en bytecode Java 11, vérifié après coup.
+3. Le jar est régénéré dans `dist/` et recopié dans le dossier Windows et l'app macOS.
 4. **Mise à jour d'un Mac déjà installé** : remplace `PixelPusherBridge.jar` dans l'app (clic droit → *Afficher le contenu du paquet* → `Contents/Resources/`).
 5. Zip macOS complet : `packaging/make_mac_app.sh` (sur Mac ou Linux — pas depuis Windows, le zip perdrait le bit exécutable).
+
+> **Chaîne de fabrication d'une release.** Le jar se compile indifféremment sous
+> Windows (`BUILD.bat`) ou sous macOS / Linux (`build.sh`), mais **le zip macOS
+> livrable doit obligatoirement être assemblé sous Unix** : une archive fabriquée
+> sous Windows perd le bit exécutable du lanceur et l'app ne démarre plus, sans
+> message. En pratique : compiler et faire passer `VERIFIER-TOUT.bat` sous
+> Windows, puis lancer `packaging/make_mac_app.sh` depuis un Mac ou une machine
+> Linux pour produire l'archive macOS.
 
 ## Architecture (pour faire évoluer l'app)
 
@@ -92,9 +147,14 @@ src/com/pixelpusher/bridge/
    LogBus          Logs + fichier + SSE      Recorder     Enregistreur/lecteur de séquences
    StatusService   Snapshot JSON             Diagnostic   Vérifications + rapport
    WebServer       Serveur HTTP embarqué     TestPatterns Scénarios de test
+   MiniHttpServer  Serveur HTTP de secours   Blackout     Blackout verrouillé
    Watchdog        Blackout auto si signal perdu
+   LegacyMessages  Traduction des messages du cœur réseau
+   Net             Adresses IPv4 du réseau local (QR code, accès téléphone)
+   Names           Noms de fichiers sûrs     Json  Qr  Tray
 web/index.html     Interface complète (un seul fichier, aucun framework)
 web/mobile.html    Interface téléphone
+build.sh           Compilation macOS / Linux (équivalent de BUILD.bat)
 ```
 
 Pour ajouter une fonctionnalité : endpoint dans `WebServer`, logique dans une classe du package `bridge`, UI dans `index.html`. Ne jamais toucher au legacy — passer par `LegacyCore`.

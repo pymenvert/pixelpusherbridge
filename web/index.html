@@ -881,9 +881,12 @@
   </section>
 </main>
 
-<div style="text-align:center;color:var(--muted2);font-size:11px;padding:6px 0 26px">
-  PixelPusher Bridge &mdash; &copy; 2026 Pierre Yves Mansour &middot; Collectif WSK
-</div>
+<!-- Pied de page : version et paternite. C'est le seul ecran que l'utilisateur
+     voit vraiment, la version doit y etre lisible sans ouvrir un menu. -->
+<footer style="text-align:center;color:var(--muted2);font-size:11.5px;padding:6px 16px 26px;line-height:1.7">
+  PixelPusher Bridge <span id="footVersion">&ndash;</span><br>
+  &copy; 2026 Pierre Yves Mansour &mdash; Collectif WSK &middot; licence MIT
+</footer>
 
 <div id="toasts"></div>
 <div id="qrModalBg" style="position:fixed;inset:0;background:rgba(5,8,12,.75);backdrop-filter:blur(5px);z-index:310;display:none;align-items:center;justify-content:center" onclick="if(event.target===this)this.style.display='none'">
@@ -1178,8 +1181,15 @@ function renderPower(p){
    snapshot n'expose pas le drapeau RGBOW par ligne. */
 var universCache={};
 function universPusher(p){
-  var strips=parseInt(p.strips,10)||0, px=parseInt(p.pixelsPerStrip,10)||0;
   var u0=parseInt(p.artnetUniverse,10)||1;
+  /* Le serveur publie desormais lastUniverse, la valeur EXACTE posee par le
+     mapping au moment du remappage. Elle tient compte du mode packing et des
+     rubans RGBOW (5 canaux par pixel), que le calcul ci-dessous ignore. On
+     l'utilise dès qu'elle est disponible ; le calcul local ne sert plus que de
+     repli, pour un pusher non encore mappé ou un serveur plus ancien. */
+  var fin=parseInt(p.lastUniverse,10)||0;
+  if(fin>=u0&&u0>0)return {first:u0,last:fin,count:fin-u0+1};
+  var strips=parseInt(p.strips,10)||0, px=parseInt(p.pixelsPerStrip,10)||0;
   var c0=parseInt(p.artnetChannel,10)||1;
   var pack=(cfgPacking!==false);
   var cle=[p.mac,strips,px,u0,c0,pack].join("|");
@@ -1205,6 +1215,8 @@ function universPusher(p){
 /* ---------- statut (poll 1 s) ---------- */
 var statusFails=0, userTouchedTest=false, lastPusherFp="", lastRecState="";
 var derniereUptime=-1, derniereReponseMs=0;
+/* Dernière révision de configuration vue dans /api/status (voir renderStatus). */
+var dernierConfigRev=null;
 function marquerDeconnecte(){
   $("connBadge").classList.add("off");
   $("connBadge").lastChild.textContent="Déconnecté";
@@ -1216,6 +1228,20 @@ function marquerDeconnecte(){
     ? "plus aucune réponse depuis "+Math.round((Date.now()-derniereReponseMs)/1000)+" s"
     : "aucune réponse depuis l’ouverture de cette page";
   $("offBanner").classList.add("show");
+}
+/* Deux pannes tres differentes se cachent derriere « artnetListening: false » :
+   le port n'a pas pu etre pris (une autre application l'occupe, un nouvel essai
+   a lieu tout seul), ou le thread de reception est mort (plus rien ne sera recu
+   tant que l'application n'aura pas redemarre). Le conseil n'est pas le meme.
+   Si le serveur ne publie pas artnetThreadAlive (version anterieure), le champ
+   vaut undefined et on retombe sur l'ancien message. */
+function messageEcouteArtnet(h){
+  if(h.artnetListening)return "Prêt à recevoir les données de ta source.";
+  if(h.artnetThreadAlive===false)
+    return "ERREUR : le thread de réception Art-Net s’est arrêté — redémarre le bridge "
+      +"(bouton ↻ Redémarrer, en haut) : aucune donnée ne sera reçue d’ici là.";
+  return "ERREUR : "+esc(h.artnetBindError||"port indisponible")
+    +" — nouvel essai automatique toutes les 5 s.";
 }
 function refreshStatus(){
   fetch("/api/status",{cache:"no-store"}).then(function(r){return r.json();}).then(function(s){
@@ -1239,7 +1265,19 @@ function refreshStatus(){
 }
 function renderStatus(s){
     derniereUptime=s.uptimeSec;
-    $("version").textContent="v"+s.version;
+    /* La configuration peut changer depuis le téléphone, un preset ou un autre
+       écran. Plutôt que d'interroger /api/config en permanence pour le
+       découvrir, on lit le compteur de révision que le serveur publie déjà dans
+       ce même appel : on ne recharge la configuration que lorsqu'elle a
+       réellement bougé. Une requête HTTP de moins toutes les 5 secondes, et la
+       détection devient immédiate au lieu de tarder jusqu'à 5 s. */
+    if(typeof s.configRev==="number"){
+      if(dernierConfigRev===null)dernierConfigRev=s.configRev;
+      else if(s.configRev!==dernierConfigRev){dernierConfigRev=s.configRev;surveillerCfg();}
+    }
+    var verTxt=s.version?("v"+s.version):"–";
+    $("version").textContent=verTxt;
+    $("footVersion").textContent=verTxt;
     $("hUptime").textContent=fmtUptime(s.uptimeSec);
     $("tArtnet").innerHTML=s.artnetPps+' <span class="unit">paquets/s</span>';
     $("tSacn").innerHTML=s.sacnPps+' <span class="unit">paquets/s</span>';
@@ -1291,11 +1329,10 @@ function renderStatus(s){
     if(recStateStr!==lastRecState){lastRecState=recStateStr;loadRecordings();}
 
     /* santé */
-    var h=s.health;
+    var h=s.health||{};
     var checks=[
       [h.webServer,"Interface web active","Le serveur web du bridge répond."],
-      [h.artnetListening,"Écoute Art-Net (port 6454)",
-        h.artnetListening?"Prêt à recevoir les données de ta source.":"ERREUR : "+esc(h.artnetBindError||"port indisponible")+" — nouvel essai automatique toutes les 5 s."],
+      [h.artnetListening,"Écoute Art-Net (port 6454)",messageEcouteArtnet(h)],
       [h.pushersDetected,h.pusherCount+" PixelPusher(s) détecté(s)",
         h.pushersDetected?"Découverte automatique OK.":"Vérifie alimentation, réseau et pare-feu (UDP 7331)."],
       [h.dmxDataRecent,"Données DMX reçues",
@@ -1628,9 +1665,13 @@ $("presetSaveBtn").addEventListener("click",function(){
   if(!saisi){toast("Donne un nom au preset","warn");return;}
   var name=nomPresetValide(saisi);
   if(!name){toast("Ce nom ne contient aucun caractère utilisable — utilise des lettres ou des chiffres.","err");return;}
-  post("/api/presets",{action:"save",name:name}).then(function(){
-    if(name!==saisi)toast("Preset enregistré sous « "+name+" » (caractères non autorisés retirés).","warn");
-    else toast("Preset enregistré : "+name);
+  post("/api/presets",{action:"save",name:name}).then(function(r){
+    /* Le serveur renvoie le nom qu'il a réellement retenu : c'est lui qui fait
+       foi, pas notre nettoyage local. Les deux règles sont identiques, mais si
+       elles divergeaient un jour l'opérateur verrait le vrai nom du fichier. */
+    var retenu=(r&&r.name)?r.name:name;
+    if(retenu!==saisi)toast("Preset enregistré sous « "+retenu+" » (caractères non autorisés retirés).","warn");
+    else toast("Preset enregistré : "+retenu);
     $("presetName").value="";loadPresets();
   }).catch(echec);
 });
@@ -1853,7 +1894,10 @@ function surveillerCfg(){
     }
   }).catch(function(){});
 }
-setInterval(surveillerCfg,5000);
+/* Repli à cadence lente : la détection normale passe par configRev, lu dans le
+   poll de statut. Ce filet ne sert qu'avec un serveur qui ne publierait pas ce
+   compteur, ou si un rafraîchissement avait été manqué. */
+setInterval(surveillerCfg,60000);
 function reloadCfgFromServer(){
   cfgDirty=false;
   $("cfgChangedBanner").classList.remove("show");

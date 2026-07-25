@@ -1,5 +1,8 @@
 package com.pixelpusher.bridge;
 
+import java.util.Iterator;
+import java.util.Map;
+
 import com.heroicrobot.pixelpusher.artnet.ArtNetReceiver;
 import com.heroicrobot.pixelpusher.artnet.LegacyCore;
 
@@ -58,11 +61,79 @@ public class Watchdog implements Runnable {
     return r != null && r.isPlaying();
   }
 
+  /** Age au-dela duquel un univers devenu silencieux quitte les tables du moniteur. */
+  private static final long PURGE_AGE_MS = 60000;
+  /** Intervalle entre deux purges : le balayage est trivial, inutile d'y aller chaque seconde. */
+  private static final long PURGE_EVERY_MS = 10000;
+  private long lastPurgeAt = 0;
+
+  /**
+   * Purge des tables du moniteur (universeLastSeen / lastFrame).
+   *
+   * Ces tables sont bornees a 512 univers cote recepteurs, mais rien ne les
+   * vidait : une source mal configuree, un changement de patch ou des paquets
+   * corrompus y laissaient definitivement des univers morts, chacun retenant un
+   * tableau de 512 octets, et StatusService comme Diagnostic les reparcourent
+   * chaque seconde. Une fois les 512 places occupees par des fantomes, un
+   * univers reellement utilise ne pouvait meme plus etre suivi.
+   *
+   * La purge se fait ICI, sur le thread du watchdog, et JAMAIS sur le thread de
+   * reception : le chemin Art-Net -> pushers ne doit porter aucun balayage.
+   *
+   * On conserve TOUJOURS l'univers vu le plus recemment : lastDmxAt() s'en sert
+   * pour mesurer l'age du signal et le watchdog accepte un delai allant jusqu'a
+   * 300 s. Effacer la derniere trace ferait retomber lastDmxAt() a 0, c'est a
+   * dire « jamais recu de donnees », et le blackout de securite ne partirait
+   * plus du tout des que le delai configure depasse 60 s.
+   */
+  private void purgeUniversSilencieux() {
+    long now = System.currentTimeMillis();
+    if (now - lastPurgeAt < PURGE_EVERY_MS) {
+      return;
+    }
+    lastPurgeAt = now;
+    Integer plusRecent = null;
+    long meilleur = Long.MIN_VALUE;
+    for (Map.Entry<Integer, Long> e : ArtNetReceiver.universeLastSeen.entrySet()) {
+      long v = e.getValue().longValue();
+      if (v > meilleur) {
+        meilleur = v;
+        plusRecent = e.getKey();
+      }
+    }
+    Iterator<Map.Entry<Integer, Long>> it =
+        ArtNetReceiver.universeLastSeen.entrySet().iterator();
+    while (it.hasNext()) {
+      Map.Entry<Integer, Long> e = it.next();
+      if (e.getKey().equals(plusRecent)) {
+        continue;
+      }
+      if (now - e.getValue().longValue() > PURGE_AGE_MS) {
+        it.remove();
+        ArtNetReceiver.lastFrame.remove(e.getKey());
+      }
+    }
+    // Orphelins : les deux tables sont bornees separement, un univers a pu
+    // entrer dans lastFrame alors que universeLastSeen etait deja pleine. Les
+    // recepteurs ecrivent toujours universeLastSeen en premier, donc une cle
+    // presente ici sans horodatage est bien un orphelin, pas une course.
+    Iterator<Integer> itFrames = ArtNetReceiver.lastFrame.keySet().iterator();
+    while (itFrames.hasNext()) {
+      if (!ArtNetReceiver.universeLastSeen.containsKey(itFrames.next())) {
+        itFrames.remove();
+      }
+    }
+  }
+
   @Override
   public void run() {
     while (true) {
       try {
         Thread.sleep(1000);
+        // Menage des tables du moniteur avant toute autre chose : il doit avoir
+        // lieu meme quand le watchdog est desactive, en mode test ou pendant une
+        // lecture de sequence, sinon les univers morts s'accumulent quand meme.
+        purgeUniversSilencieux();
         int limit = cfg.getWatchdogSec();
         // Pendant un scenario de test ou la lecture d'une sequence, les pixels
         // sont alimentes par le bridge lui-meme : aucune trame n'arrive du
