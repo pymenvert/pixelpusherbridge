@@ -121,10 +121,18 @@ jobs:
               --title "${GITHUB_REF_NAME}" \
               --notes "Voir [CHANGELOG.md](https://github.com/${GITHUB_REPOSITORY}/blob/main/CHANGELOG.md)."
           fi
+          # GitHub remplace espaces et parenthèses par des points dans le nom des
+          # pièces jointes : « PixelPusher Bridge (macOS).zip » deviendrait
+          # « PixelPusher.Bridge.macOS.zip ». On choisit donc nous-mêmes un nom
+          # propre, sans espace et portant la version — c'est plus lisible dans
+          # le dossier de téléchargements de la personne qui l'installe.
+          V="${GITHUB_REF_NAME#v}"
+          cp "dist/PixelPusher Bridge (macOS).zip"   "PixelPusherBridge-${V}-macOS.zip"
+          cp "dist/PixelPusher Bridge (Windows).zip" "PixelPusherBridge-${V}-Windows.zip"
           # --clobber : une relance du workflow remplace les archives au lieu
           # d'échouer sur « asset already exists ».
           gh release upload "${GITHUB_REF_NAME}" \
-            "dist/PixelPusher Bridge (macOS).zip" \
-            "dist/PixelPusher Bridge (Windows).zip" \
+            "PixelPusherBridge-${V}-macOS.zip" \
+            "PixelPusherBridge-${V}-Windows.zip" \
             --clobber
           echo "Archives attachées à ${GITHUB_REF_NAME}."
