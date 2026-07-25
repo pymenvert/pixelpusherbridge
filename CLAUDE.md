@@ -93,7 +93,7 @@ audit-findings.json   Les mêmes, en données exploitables
 ```
 RUN-TESTS.bat
 ```
-Compile `src/` + `tests/`, exécute 100 vérifications (conversions de puissance,
+Compile `src/` + `tests/`, exécute 313 vérifications (conversions de puissance,
 reclassement des messages legacy, échappement JSON, filtrage des noms de fichiers,
 serveur HTTP de secours de bout en bout), puis valide les interfaces web et
 l'encodeur QR. Zéro dépendance. Les fichiers `*Test.java` et le dossier `tests/`
@@ -138,8 +138,11 @@ sans ce contrôle, un jar illisible sur la machine de spectacle partirait en sil
 `BUILD.bat` arrête en plus les instances en cours (sinon le jar est corrompu silencieusement)
 et met à jour le dossier Windows + l'app macOS.
 
-Zip macOS complet : `packaging/make_mac_app.sh` — **à lancer depuis macOS ou Linux**, jamais
-depuis Windows (le zip perdrait le bit exécutable du launcher, l'app ne démarrerait plus).
+Zip macOS complet : `python3 tools/make_livrables.py` — **depuis n'importe quel système**,
+Windows compris. Il pose les permissions Unix explicitement dans l'archive puis la relit
+pour vérifier que le lanceur y est bien exécutable (voir DEVNOTES §7 : la contrainte
+« assembler sous Unix » était fausse, c'était l'outil `zip` qui manquait, pas le format).
+`packaging/make_mac_app.sh` reste disponible sous Mac et Linux — même contenu produit.
 
 ## Tester sans matériel
 

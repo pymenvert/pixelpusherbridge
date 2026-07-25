@@ -94,7 +94,7 @@ eux-mêmes.
 RUN-TESTS.bat
 ```
 
-100 vérifications sans aucune dépendance : conversions de puissance, reclassement
+313 vérifications sans aucune dépendance : conversions de puissance, reclassement
 des messages du cœur réseau, échappement JSON, filtrage des noms de fichiers,
 serveur HTTP de secours de bout en bout, syntaxe des interfaces web, encodeur QR.
 
@@ -107,7 +107,7 @@ VERIFIER-TOUT.bat
 Enchaîne les trois étapes et s'arrête à la première qui échoue :
 
 1. **compilation** (`BUILD.bat`) — jar régénéré, cible Java 11 contrôlée ;
-2. **banc de tests** (`RUN-TESTS.bat`) — 100 vérifications + interfaces web + QR ;
+2. **banc de tests** (`RUN-TESTS.bat`) — 313 vérifications + interfaces web + QR ;
 3. **test de bout en bout** — un faux PixelPusher et une source Art-Net simulée
    vérifient la chaîne complète réseau → mapping → trames → LED
    (`tools/smoke_test.py`, nécessite Python 3 ; l'étape est ignorée avec un
@@ -126,15 +126,24 @@ matériel. **Ne publie pas une version qui ne passe pas cette commande.**
    jar en bytecode Java 11, vérifié après coup.
 3. Le jar est régénéré dans `dist/` et recopié dans le dossier Windows et l'app macOS.
 4. **Mise à jour d'un Mac déjà installé** : remplace `PixelPusherBridge.jar` dans l'app (clic droit → *Afficher le contenu du paquet* → `Contents/Resources/`).
-5. Zip macOS complet : `packaging/make_mac_app.sh` (sur Mac ou Linux — pas depuis Windows, le zip perdrait le bit exécutable).
+5. Zip macOS complet : `python3 tools/make_livrables.py` — **depuis n'importe quel
+   système, Windows compris**. (`packaging/make_mac_app.sh` reste disponible pour
+   qui préfère le faire sous Mac ou Linux.)
 
-> **Chaîne de fabrication d'une release.** Le jar se compile indifféremment sous
-> Windows (`BUILD.bat`) ou sous macOS / Linux (`build.sh`), mais **le zip macOS
-> livrable doit obligatoirement être assemblé sous Unix** : une archive fabriquée
-> sous Windows perd le bit exécutable du lanceur et l'app ne démarre plus, sans
-> message. En pratique : compiler et faire passer `VERIFIER-TOUT.bat` sous
-> Windows, puis lancer `packaging/make_mac_app.sh` depuis un Mac ou une machine
-> Linux pour produire l'archive macOS.
+> **Chaîne de fabrication d'une release**, entièrement réalisable depuis une
+> seule machine :
+>
+> ```
+> VERIFIER-TOUT.bat                  compile, teste, valide la chaîne réseau → LED
+> python3 tools/make_livrables.py      assemble le livrable macOS
+> ```
+>
+> Le zip macOS devait autrefois être assemblé sous Unix : une archive fabriquée
+> par un outil Windows perd le bit exécutable du lanceur et l'app ne démarre
+> plus, sans message. Ce n'est pas le format zip qui est en cause mais l'outil —
+> le format stocke bien les permissions Unix. `make_livrables.py` les écrit
+> explicitement, **puis relit l'archive produite** et refuse de la valider si le
+> lanceur n'y est pas exécutable.
 
 ## Architecture (pour faire évoluer l'app)
 

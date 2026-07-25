@@ -92,8 +92,19 @@ sur banc de test. Le rapport intégral est dans [`AUDIT.md`](AUDIT.md).
   n'est plus compté comme telle, et chaque message porte un conseil concret.
   L'avertissement d'auto-throttle, les écritures hors ruban, les paquets malformés
   et les firmwares trop anciens remontent désormais dans le diagnostic.
-- **Banc de tests automatisés** (`RUN-TESTS.bat`) : 100 vérifications, zéro
+- **Banc de tests automatisés** (`RUN-TESTS.bat`) : 313 vérifications, zéro
   dépendance. Contrôle aussi la syntaxe des interfaces web et l'encodeur QR.
+  `VERIFIER-TOUT.bat` y ajoute un test de bout en bout qui vérifie les couleurs
+  réellement reçues par les LED, sans le moindre matériel.
+- **Le livrable macOS s'assemble maintenant depuis n'importe quel système**
+  (`tools/make_livrables.py`), Windows compris. Il devait auparavant être fabriqué
+  sur un Mac ou sous Linux, faute de quoi le lanceur perdait son bit exécutable
+  et l'app ne démarrait pas — si bien qu'en pratique le zip livré datait toujours
+  d'une version antérieure au reste. Le script écrit les permissions Unix
+  lui-même, puis relit l'archive et refuse de la valider si le lanceur n'y est
+  pas exécutable.
+- **Le PDF de présentation est désormais généré** (`tools/make_pdf.py`) et lit le
+  numéro de version dans le code : il ne peut plus décrire une version périmée.
 - **Vérification complète en une commande** (`VERIFIER-TOUT.bat`) : compilation,
   banc de tests, puis test de bout en bout réseau → mapping → trames → LED avec
   un faux PixelPusher. Si elle finit en vert, la chaîne entière a été vérifiée

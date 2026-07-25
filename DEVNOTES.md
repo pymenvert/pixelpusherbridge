@@ -65,11 +65,29 @@ par annonce de pusher (chaque seconde). Résolu : ces 2 lignes passées en `Syst
 `java.util.logging` limité à WARNING vers stdout, `registry.setLogging()` lié au mode debug,
 et `LogBus` ne compte plus les lignes de stack trace comme des erreurs distinctes.
 
-### 7. Zip macOS depuis Windows
-Un zip créé sous Windows perd le bit exécutable du launcher → l'app ne démarre pas.
-Toujours utiliser `packaging/make_mac_app.sh` depuis macOS ou Linux — il refuse désormais de
-tourner sans la commande `zip` et impose lui-même les droits (dossiers et fichiers lisibles par
-tous, lanceur en 0755), au lieu de laisser l'umask de la machine décider. Voir piège n°15.
+### 7. Zip macOS depuis Windows — RÉSOLU
+
+**Symptôme :** un zip créé sous Windows perd le bit exécutable du launcher, l'app ne
+démarre pas, sans message.
+
+**Diagnostic initial (incomplet) :** « il faut assembler sous Unix ». On a donc vécu des
+mois avec un livrable macOS qui ne pouvait pas être produit sur la machine de
+développement — et qui, en pratique, finissait toujours par dater d'une version
+antérieure au jar.
+
+**Vraie cause :** ce n'est pas le format zip, c'est l'outil. Le format stocke les
+permissions Unix dans le champ *external attributes* de chaque entrée ; les outils
+Windows le laissent simplement vide. Il faut aussi que `create_system` vaille 3 (Unix),
+sans quoi macOS ignore le champ.
+
+**Résolu :** `tools/make_livrables.py` écrit l'archive lui-même et pose les bits
+explicitement (0755 dossiers / lanceur / `.command`, 0644 le reste), **puis relit
+l'archive produite** et échoue si le lanceur n'y est pas exécutable. Il tourne sur
+n'importe quel système. `packaging/make_mac_app.sh` reste utilisable sous Mac et Linux,
+les deux produisent le même contenu.
+
+**Leçon générale :** « il faut le faire sur l'autre système » mérite toujours d'être
+questionné. Ici la contrainte était fausse, et elle coûtait un livrable périmé.
 
 ### 8. Avertissement « would increase delay, but autothrottle is disabled »
 Ce n'est **pas** une erreur : le pusher signale qu'il reçoit plus vite qu'il ne peut suivre.
@@ -311,10 +329,9 @@ Ce que la chaîne de développement suppose, sans identifier de machine particul
 
 - **Compilation** avec un JDK installé : `BUILD.bat` sous Windows, `build.sh` sous macOS ou
   Linux — les deux produisent le même jar et relisent la version du bytecode (55 = Java 11).
-  L'**empaquetage macOS reste obligatoirement sous Unix** (`packaging/make_mac_app.sh`,
-  voir piège n°7) : un zip fabriqué sous Windows perd le bit exécutable du lanceur.
-  Chaîne habituelle : compiler et faire passer `VERIFIER-TOUT.bat` sous Windows, puis
-  assembler l'archive macOS depuis un Mac ou une machine Linux.
+  L'**empaquetage macOS se fait désormais depuis n'importe quel système** avec
+  `tools/make_livrables.py` (voir piège n°7, résolu). Chaîne complète sur une seule
+  machine : `VERIFIER-TOUT.bat` puis `python3 tools/make_livrables.py`.
 - Cible de validation : **Mac Apple Silicon sous macOS 13 ou plus récent**, un contrôleur
   PixelPusher 8 lignes × 96 px en firmware 141, MadMapper comme source Art-Net.
 - Sources également utilisées en exploitation : grandMA3, BEYOND, Resolume.
