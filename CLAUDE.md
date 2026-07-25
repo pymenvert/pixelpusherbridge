@@ -91,6 +91,19 @@ LISEZ-MOI.txt         Pense-bête à livrer à côté des binaires (version, lic
 DEMARRER-ICI.md       Point d'entrée du dossier pour une reprise de développement
 ```
 
+## Publier une version (écarts avec le `CLAUDE.md` global)
+
+Le contexte global décrit la marche à suivre pour les dépôts de Pym. Deux
+particularités ici :
+
+- le workflow s'appelle **`.github/workflows/build.yml`**, pas `release.yml` ;
+- il tourne en **~50 secondes**, pas 20–30 minutes (projet Java sans dépendance,
+  rien à télécharger). Inutile de prévoir de longues attentes.
+
+Le reste est conforme : pousser un tag `vX.Y.Z` suffit, `github-actions[bot]`
+fabrique et attache les deux archives, et la surveillance passe par l'API REST
+anonyme (aucun outil MCP pour les exécutions de workflow).
+
 ## Toujours lancer les tests avant de publier
 
 ```
